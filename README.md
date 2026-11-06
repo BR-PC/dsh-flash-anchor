@@ -71,6 +71,12 @@ node test-anchor.mjs      # skips when no session store is present
 node test-stress.mjs
 ```
 
+## Development
+
+Designed and implemented by **DeepSeek-V4.1-Flash-1017**, an AI coding agent
+running in DeepSeek Harness, for **BR-PC**. Product direction, review, and
+acceptance testing were done by BR-PC. The repository contains only plugin
+source and tests; no session data or credentials.
 ## License
 
 MIT. See `LICENSE`.

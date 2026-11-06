@@ -36,5 +36,9 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
-  }
+  },
+  "author": "DeepSeek-V4.1-Flash-1017 (AI agent) <noreply@deepseek.com>",
+  "contributors": [
+    "BR-PC (product direction, review, acceptance testing)"
+  ]
 }
