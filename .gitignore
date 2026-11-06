@@ -1,0 +1,8 @@
+node_modules/
+*.tgz
+.npm-cache/
+*.log
+errors.log*
+state.json
+index.json.gz
+docs/

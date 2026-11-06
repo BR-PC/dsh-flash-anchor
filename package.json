@@ -1,0 +1,40 @@
+{
+  "name": "flash-anchor",
+  "version": "1.5.0",
+  "private": true,
+  "description": "FlashAnchor: block-anchored full-text search across every session's reasoning, tool calls, text, and files in the DSH Web GUI.",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.png"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "search-core.js",
+    "search-pool.js",
+    "worker.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.png",
+    "logo.png",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}
