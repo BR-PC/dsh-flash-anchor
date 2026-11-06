@@ -506,6 +506,11 @@ window.__ModuleLoader__.load({
     // request. A request already in flight is aborted first.
     const searchCache = new Map()
     const SEARCH_CACHE_MS = 60_000
+    // A click opens the target Session before its Chat view exists. The old
+    // 4s budget expired mid-mount and reported "not-mounted" for a Turn that
+    // simply had not rendered yet; waiting for the view is the fix.
+    const JUMP_VIEW_MS = 7_000
+    const JUMP_LOCATE_MS = 8_000
     let sessionsCache = { at: 0, payload: null }
     const PREFS_KEY = 'flash-anchor:prefs:v1'
     const APPEARANCE_DEFAULT = { blur: 16, alpha: 90 }
@@ -636,41 +641,108 @@ window.__ModuleLoader__.load({
       return marks
     }
 
-    async function clickTurnMark(turn) {
+    /** The Chat transcript scroller: a virtual list mounts Turns only near it. */
+    function chatScroller() {
+      const anchor = document.querySelector('[data-chat-flow]') || document.querySelector('[data-chat-turn]')
+      let node = anchor ? anchor.parentElement : null
+      while (node && node !== document.body) {
+        try {
+          const view = Number(node.clientHeight) || 0
+          const total = Number(node.scrollHeight) || 0
+          if (view > 0 && total > view + 8) return node
+        } catch {
+          /* a detached node ends the walk */
+        }
+        node = node.parentElement
+      }
+      return null
+    }
+
+    function chatViewState() {
+      const rows = document.querySelectorAll('[data-chat-turn]').length
+      const marks = turnMarks().length
+      const flow = document.querySelector('[data-chat-flow]') !== null
+      return { flow, rows, marks, ready: flow || rows > 0 || marks > 0 }
+    }
+
+    /** Wait for the freshly opened Session's Chat view, not just its binding. */
+    async function waitForChatView(deadline) {
+      const timeout = Math.max(200, deadline - Date.now())
+      const ready = await waitForMatch(() => (chatViewState().ready ? true : null), timeout, 80)
+      return ready === true
+    }
+
+    /**
+     * Walk the virtualized transcript toward one Turn so its rows mount. The
+     * rail is the fast path; this covers views whose rail is absent or whose
+     * mark list has not materialized yet.
+     */
+    async function nudgeTranscript(turn) {
+      const target = Number(turn)
+      if (!Number.isFinite(target)) return false
+      const scroller = chatScroller()
+      if (!scroller) return false
+      const mounted = [...document.querySelectorAll('[data-chat-turn]')]
+        .map((row) => Number(row.getAttribute('data-chat-turn')))
+        .filter((value) => Number.isFinite(value))
+      if (mounted.length === 0) return false
+      const first = Math.min(...mounted)
+      const last = Math.max(...mounted)
+      const view = Number(scroller.clientHeight) || 0
+      const total = Number(scroller.scrollHeight) || 0
+      const step = Math.max(160, Math.round(view * 0.85))
+      const current = Number(scroller.scrollTop) || 0
+      let next = null
+      if (target < first) next = Math.max(0, current - step)
+      else if (target > last) next = Math.min(Math.max(0, total - view), current + step)
+      if (next === null || Math.abs(next - current) < 4) return false
+      scroller.scrollTop = next
+      await settleFrames(1)
+      return true
+    }
+
+    /**
+     * Click the rail mark that names this Turn. The rail is virtualized too, so
+     * a missing mark means "scroll the rail and look again", never "this Turn
+     * does not exist".
+     */
+    async function clickTurnMark(turn, timeout = 1200) {
       const marks = await waitForMatch(() => {
         const current = turnMarks()
         return current.length > 0 ? current : null
-      }, 1200)
+      }, timeout)
       if (!marks) return false
-      const first = marks[0]
-      const offset = first.turn - first.index
-      let targetIndex = turn - offset
-      if (!Number.isFinite(targetIndex) || targetIndex < 0) targetIndex = turn - 1
+      const exact = () => turnMarks().find((candidate) => candidate.turn === turn) || null
       const rail = marks[0].element.closest('[class*="scroller"]') || marks[0].element.parentElement
-      if (rail) {
-        rail.scrollTop = Math.max(0, targetIndex * 10 - rail.clientHeight / 2)
-        await delay(140)
+      let mark = exact()
+      if (!mark) {
+        const first = marks[0]
+        const offset = first.turn - first.index
+        let targetIndex = turn - offset
+        if (!Number.isFinite(targetIndex) || targetIndex < 0) targetIndex = turn - 1
+        if (rail) {
+          rail.scrollTop = Math.max(0, targetIndex * 10 - rail.clientHeight / 2)
+          await delay(140)
+        }
+        mark = exact()
       }
-      let mark = turnMarks().find((candidate) => candidate.index === targetIndex)
-      let markElement = mark ? mark.element : null
-      if (!markElement) {
-        const found = turnMarks().find((candidate) => candidate.turn === turn)
-        if (found) markElement = found.element
-      }
-      if (!markElement && rail) {
-        const base = Math.max(0, targetIndex * 10 - rail.clientHeight / 2)
-        for (const delta of [-48, 48, -96, 96, -160, 160]) {
-          rail.scrollTop = Math.max(0, base + delta)
-          await delay(90)
-          const found = turnMarks().find((candidate) => candidate.turn === turn)
-          if (found) {
-            markElement = found.element
-            break
-          }
+      if (!mark && rail) {
+        // The rail virtualizes its marks as well: sweep it instead of guessing.
+        const total = Math.max(0, Number(rail.scrollHeight) || 0)
+        const step = Math.max(80, Math.round((Number(rail.clientHeight) || 0) * 0.9))
+        for (let at = 0; at <= total; at += step) {
+          rail.scrollTop = at
+          await delay(60)
+          mark = exact()
+          if (mark) break
         }
       }
-      if (!markElement) return false
-      markElement.click()
+      if (!mark) return false
+      try {
+        mark.element.click()
+      } catch {
+        return false
+      }
       return true
     }
 
@@ -892,6 +964,12 @@ window.__ModuleLoader__.load({
           const byId = order.find((entry) => nodeMessageId(entry.node) === wantedId && kindMatch(entry))
           if (byId) return { key: byId.key, how: 'message-id' }
         }
+        // An event seq names the node that contains it; equality is an
+        // identity, unlike "the newest node at or before this seq".
+        if (seq !== null) {
+          const bySeq = order.find((entry) => kindMatch(entry) && Number(entry.node.anchorSeq) === seq)
+          if (bySeq) return { key: bySeq.key, how: 'seq-exact' }
+        }
         if (step !== null) {
           const byStep = order.find((entry) => stepMatch(entry) && kindMatch(entry))
           if (byStep) return { key: byStep.key, how: 'step' }
@@ -902,6 +980,13 @@ window.__ModuleLoader__.load({
           const byTool = order.find((entry) => nodeToolNameOf(entry.node) === toolName)
           if (byTool) return { key: byTool.key, how: 'tool-name' }
         }
+        if (direct) {
+          // A hit with its own address is never swapped for a neighbour in the
+          // same Turn; that exchange is what "landed somewhere unrelated"
+          // looked like. The caller reports not-mounted instead.
+          return { key: direct, how: 'anchor-unverified' }
+        }
+        // Legacy payloads carry no address; the owning node is the best guess.
         if (seq !== null) {
           let owner = null
           let bestAnchor = -Infinity
@@ -1391,8 +1476,8 @@ window.__ModuleLoader__.load({
       try {
         const binding = await waitForMatch(() => ctx.sessions.binding(target.sessionId), 6000)
         if (!binding) throw new Error('no-session-binding')
-        const resolved = resolveNodeKey(ctx, target)
         trace.keyExpected = nodeKeyOfAnchor(target)
+        let resolved = resolveNodeKey(ctx, target)
         trace.keyHow = resolved.how
         trace.keyFound = resolved.key
         trace.turnRows = rowsOfTurn(turn).length
@@ -1402,15 +1487,53 @@ window.__ModuleLoader__.load({
         // the Turn is how "jumped somewhere unrelated" came back.
         if (!row && !resolved.key) row = pickRowInTurn(turn, target)
         if (!row && turn !== null) {
-          trace.turnMark = await clickTurnMark(turn)
-          row = await waitForRow(resolved.key, target, 500)
-          if (!row) {
-            trace.loadedThrough = await loadThroughSeq(binding, target.seq)
-            row = await waitForRow(resolved.key, target, 1200)
-          }
-          if (!row && trace.turnMark) {
-            await clickTurnMark(turn)
-            row = await waitForRow(resolved.key, target, 900)
+          // A cold click opens the Session; its Chat view mounts after the
+          // binding, so the locate attempt starts once the view exists rather
+          // than against an empty document.
+          if (!chatViewState().ready) await waitForChatView(Date.now() + JUMP_VIEW_MS)
+          const deadline = Date.now() + JUMP_LOCATE_MS
+          let idle = 0
+          let attempt = 0
+          while (!row && Date.now() < deadline) {
+            attempt += 1
+            const before = [
+              rowsOfTurn(turn).length,
+              turnMarks().length,
+              document.querySelectorAll('[data-chat-turn]').length,
+              chatScroller() ? Math.round(Number(chatScroller().scrollTop) || 0) : -1,
+            ].join(':')
+            if (attempt > 1) {
+              resolved = resolveNodeKey(ctx, target)
+              if (resolved.key) {
+                trace.keyHow = resolved.how
+                trace.keyFound = resolved.key
+              }
+            }
+            row = resolved.key ? pickSeatRow(resolved.key, target) : pickRowInTurn(turn, target)
+            if (row) break
+            if (!trace.turnMark || attempt % 3 === 0) {
+              trace.turnMark = await clickTurnMark(turn, attempt === 1 ? 900 : 150)
+              row = await waitForRow(resolved.key, target, 260)
+              if (row) break
+            }
+            if (!trace.loadedThrough) {
+              trace.loadedThrough = await loadThroughSeq(binding, target.seq)
+              row = await waitForRow(resolved.key, target, 300)
+              if (row) break
+            }
+            if (await nudgeTranscript(turn)) row = await waitForRow(resolved.key, target, 300)
+            const after = [
+              rowsOfTurn(turn).length,
+              turnMarks().length,
+              document.querySelectorAll('[data-chat-turn]').length,
+              chatScroller() ? Math.round(Number(chatScroller().scrollTop) || 0) : -1,
+            ].join(':')
+            idle = row ? 0 : before === after ? idle + 1 : 0
+            trace.turnRows = rowsOfTurn(turn).length
+            // Six stalls in a row mean the Turn cannot be mounted at all; say
+            // so instead of spinning out the whole budget.
+            if (idle >= 6) break
+            if (!row) await delay(120)
           }
         }
         if (!row) throw new Error(resolved.key ? 'not-mounted' : 'no-anchor')
@@ -2377,11 +2500,14 @@ window.__ModuleLoader__.load({
         setExt('')
         setSort(entrySort === 'relevance' ? 'relevance' : 'time')
         setTimeOrder(entrySort === 'time-asc' ? 'asc' : 'desc')
-        lastSearchRef.current = signatureOfEntry(entry)
+        const entrySignature = signatureOfEntry(entry)
+        lastSearchRef.current = entrySignature
         setResultsOpen(true)
         setError(null)
-        // A saved view is a snapshot, not a reason to rescan the corpus.
-        if (resultCache.payload && resultCache.savedId === entry.id) {
+        // A saved view is a snapshot, not a reason to rescan the corpus. The
+        // in-memory page is only this entry's when its filters match too: the
+        // saved id is the query, so the same query with other types shares it.
+        if (resultCache.payload && resultCache.savedId === entry.id && resultCache.signature === entrySignature) {
           setData(resultCache.payload)
           setSavedId(entry.id)
           setSearching(false)

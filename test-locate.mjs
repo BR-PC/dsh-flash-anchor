@@ -11,6 +11,10 @@ const SOURCE = fs.readFileSync(path.join(HERE, 'client.js'), 'utf8')
 const HELPERS = [
   'turnOfLabel',
   'turnMarks',
+  'chatScroller',
+  'chatViewState',
+  'waitForChatView',
+  'nudgeTranscript',
   'clickTurnMark',
   'delay',
   'waitForMatch',
@@ -84,7 +88,15 @@ function extractConst(name) {
   return SOURCE.slice(at, SOURCE.indexOf('\n', at))
 }
 
-const CONSTANTS = ['ASSISTANT_STEP_PREFIX', 'TOOL_CALL_PREFIX', 'INPUT_MESSAGE_PREFIX', 'BLOCK_SELECTOR', 'CARD_SELECTOR']
+const CONSTANTS = [
+  'ASSISTANT_STEP_PREFIX',
+  'TOOL_CALL_PREFIX',
+  'INPUT_MESSAGE_PREFIX',
+  'BLOCK_SELECTOR',
+  'CARD_SELECTOR',
+  'JUMP_VIEW_MS',
+  'JUMP_LOCATE_MS',
+]
   .map(extractConst)
   .join('\n')
 
@@ -415,7 +427,8 @@ function createRuntime(scene) {
       '\nreturn {' +
       ' jumpToHit: jumpToHit, findBlockInRow: findBlockInRow, needleOf: needleOf, matchText: matchText,' +
       ' nodeKeyOfAnchor: nodeKeyOfAnchor, pickSeatRow: pickSeatRow, resolveNodeKey: resolveNodeKey,' +
-      ' blockCandidates: blockCandidates, squashText: squashText' +
+      ' blockCandidates: blockCandidates, squashText: squashText,' +
+      ' nudgeTranscript: nudgeTranscript, chatScroller: chatScroller, chatViewState: chatViewState' +
       ' };',
   )
   const runtime = factory(
@@ -842,6 +855,138 @@ function record(name) {
   assert.ok(harness.runtime.matchText('加粗的文本和代码片段', '**加粗的**文本') > 0)
   assert.ok(harness.runtime.matchText('普通段落', '**完全不同的内容**') === 0)
   record('markdown needle')
+}
+
+
+// 18. Cold open: the Chat view of the target Session mounts *after* the click.
+//     The jump must wait for the view instead of reporting not-mounted.
+{
+  const dom = createDom()
+  const scroller = el('div', { id: 'chat-scroller' }, [], { scrollable: true, viewport: 800 })
+  scroller.append(el('div', { 'data-chat-turn': '0' }, [], { height: 700 }))
+  dom.mount(scroller)
+  const rail = el('div', { class: 'scroller' }, [], { scrollable: true, viewport: 200 })
+  for (let turn = 1; turn <= 3; turn += 1) {
+    rail.append(el('button', { 'data-index': String(turn - 1), 'aria-label': '跳到第 ' + turn + ' 轮' }, [], {}))
+  }
+  dom.mount(rail)
+  dom.refresh()
+  const scene = {
+    dom,
+    scroller,
+    rail,
+    snapshot: buildSnapshot(),
+    async appendTurn6() {},
+    mountTurn3() {
+      scroller.append(
+        el(
+          'div',
+          {
+            'data-chat-turn': '3',
+            'data-chat-node-key': '14:assistant-step3:1',
+            'data-chat-flow-kind': 'assistant-step',
+            'data-chat-group-part': 'response',
+            'data-chat-anchor-key': '14:assistant-step3:1',
+          },
+          [el('div', {}, [p('第三轮第五段：指标中心化以后，' + LONG_FRAGMENT + '。', 200)])],
+          { height: 600 },
+        ),
+      )
+      dom.refresh()
+    },
+  }
+  const harness = createRuntime(scene)
+  const mounting = new Promise((resolve) => setTimeout(() => (scene.mountTurn3(), resolve()), 900))
+  const diag = await runJump(harness, {
+    sessionId: 's1',
+    kind: 'modelText',
+    turn: 3,
+    step: 1,
+    seq: 100,
+    messageId: 'm-3',
+    blockIndex: 0,
+    seatIndex: 0,
+    anchor: { turn: 3, step: 1, messageId: 'm-3', blockIndex: 0, seatIndex: 0, blockKind: 'text', chunk: 0 },
+    fragment: LONG_FRAGMENT,
+    query: '块级锚点',
+  })
+  await mounting
+  assertCentered(diag, 'cold open waits for the view')
+  assert.equal(diag.keyFound, '14:assistant-step3:1')
+  assert.equal(diag.reason, 'block')
+  record('cold open waits for the view')
+}
+
+// 19. Strict anchor: a hit whose own node is absent must never be swapped for
+//     a different message that happens to sit in the same Turn.
+{
+  const scene = buildScene()
+  const harness = createRuntime(scene)
+  const resolved = harness.runtime.resolveNodeKey(harness.ctx, {
+    sessionId: 's1',
+    kind: 'userText',
+    turn: 2,
+    seq: 999,
+    messageId: 'u-9',
+    anchor: { turn: 2, seq: 999, messageId: 'u-9', blockIndex: 0, blockKind: 'text', chunk: 0 },
+    fragment: '不存在的用户消息',
+  })
+  assert.equal(resolved.key, '13:input-messageu-9', 'strict resolution invented another node: ' + JSON.stringify(resolved))
+  assert.equal(resolved.how, 'anchor-unverified')
+  const diag = await runJump(harness, {
+    sessionId: 's1',
+    kind: 'userText',
+    turn: 2,
+    seq: 999,
+    messageId: 'u-9',
+    anchor: { turn: 2, seq: 999, messageId: 'u-9', blockIndex: 0, blockKind: 'text', chunk: 0 },
+    fragment: '不存在的用户消息',
+    query: '不存在的用户消息',
+  })
+  assert.ok(diag, 'strict anchor: no diagnostic')
+  assert.equal(diag.ok, false, 'strict anchor must not report success: ' + diagnose(diag))
+  assert.equal(diag.reason, 'not-mounted')
+  assert.equal(diag.keyFound, '13:input-messageu-9')
+  record('strict anchor refuses a same-turn swap')
+}
+
+// 20. Identity by seq: when the rendered node key differs from the stored
+//     message id but the event seq is exactly the node's anchor, use it.
+{
+  const scene = buildScene()
+  const harness = createRuntime(scene)
+  const resolved = harness.runtime.resolveNodeKey(harness.ctx, {
+    sessionId: 's1',
+    kind: 'userText',
+    turn: 1,
+    seq: 1,
+    messageId: 'u-9',
+    anchor: { turn: 1, seq: 1, messageId: 'u-9', blockIndex: 0, blockKind: 'text', chunk: 0 },
+    fragment: '北京今天',
+  })
+  assert.equal(resolved.key, '13:input-messageu-1', 'seq-exact did not recover the node: ' + JSON.stringify(resolved))
+  assert.equal(resolved.how, 'seq-exact')
+  record('seq-exact recovers a re-keyed node')
+}
+
+// 21. The transcript nudge moves a virtual list toward an unmounted Turn.
+{
+  const dom = createDom()
+  const scroller = el('div', { id: 'chat-scroller' }, [], { scrollable: true, viewport: 800 })
+  for (let turn = 1; turn <= 3; turn += 1) {
+    scroller.append(el('div', { 'data-chat-turn': String(turn) }, [], { height: 600 }))
+  }
+  dom.mount(scroller)
+  dom.refresh()
+  const scene = { dom, scroller, snapshot: buildSnapshot(), async appendTurn6() {} }
+  const harness = createRuntime(scene)
+  const before = scroller.scrollTop
+  const moved = await harness.runtime.nudgeTranscript(9)
+  assert.equal(moved, true, 'nudge did not move the transcript')
+  assert.ok(scroller.scrollTop > before, 'nudge moved the wrong way: ' + scroller.scrollTop)
+  const up = await harness.runtime.nudgeTranscript(1)
+  assert.equal(up, false, 'nudge with the Turn already mounted-area must not move: ' + scroller.scrollTop)
+  record('transcript nudge moves toward the Turn')
 }
 
 console.log('deepsearch locate contracts: ok (' + checks.length + ' scenarios)')

@@ -107,6 +107,10 @@ class Element {
   get clientHeight() {
     return this._scrollable ? this._viewport : this._height
   }
+  get scrollHeight() {
+    if (!this._scrollable) return this._height
+    return Math.max(this._contentHeight ?? 0, this._viewport)
+  }
   contains(other) {
     let node = other
     while (node) {
