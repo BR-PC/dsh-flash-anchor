@@ -1359,7 +1359,7 @@ window.__ModuleLoader__.load({
 
     async function waitForRow(key, target, timeout) {
       const turn = finiteNumber(anchorOf(target).turn ?? target.turn)
-      return waitForMatch(() => pickSeatRow(key, target) || pickRowInTurn(turn, target), timeout, 60)
+      return waitForMatch(() => (key ? pickSeatRow(key, target) : pickRowInTurn(turn, target)), timeout, 60)
     }
 
     function reportJump(details) {
@@ -1398,7 +1398,9 @@ window.__ModuleLoader__.load({
         trace.turnRows = rowsOfTurn(turn).length
 
         let row = resolved.key ? pickSeatRow(resolved.key, target) : null
-        if (!row) row = pickRowInTurn(turn, target)
+        // An anchored hit must land on its own message; picking another row in
+        // the Turn is how "jumped somewhere unrelated" came back.
+        if (!row && !resolved.key) row = pickRowInTurn(turn, target)
         if (!row && turn !== null) {
           trace.turnMark = await clickTurnMark(turn)
           row = await waitForRow(resolved.key, target, 500)
@@ -1861,12 +1863,8 @@ window.__ModuleLoader__.load({
         indexedSessions: 0,
         indexedDocs: 0,
       })
-      const cachedPayload =
-        initial.resultsOpen && resultCache.payload && resultCache.savedId && initial.savedId === resultCache.savedId
-          ? resultCache.payload
-          : null
-      const [data, setData] = React.useState(cachedPayload)
-      const [searching, setSearching] = React.useState(Boolean(initial.resultsOpen && !cachedPayload))
+      const [data, setData] = React.useState(null)
+      const [searching, setSearching] = React.useState(Boolean(initial.resultsOpen))
       const [resultsOpen, setResultsOpen] = React.useState(Boolean(initial.resultsOpen))
       const [preload, setPreload] = React.useState({ phase: 'idle', total: 0 })
       const [error, setError] = React.useState(null)
@@ -1933,10 +1931,15 @@ window.__ModuleLoader__.load({
       // already in memory; only a cold start needs the saved-view request.
       React.useEffect(() => {
         if (!initialRestore) return
-        if (resultCache.payload && resultCache.savedId === initialRestore.id) {
+        if (
+          resultCache.payload &&
+          resultCache.savedId === initialRestore.id &&
+          resultCache.signature === signatureOfEntry(initialRestore)
+        ) {
           setResultsOpen(true)
           setData(resultCache.payload)
           setSavedId(initialRestore.id)
+          setSearching(false)
           return
         }
         void loadSaved(initialRestore)
@@ -2168,10 +2171,11 @@ window.__ModuleLoader__.load({
         return found && found.title ? found.title : selectedSession
       }, [selectedSession, sessionsState.items])
 
-      const remember = (payload) => {
+      const remember = (payload, signature) => {
         if (!payload) return
         resultCache.payload = payload
         resultCache.savedId = payload.savedId || null
+        resultCache.signature = signature || null
         resultCache.at = Date.now()
       }
 
@@ -2259,7 +2263,7 @@ window.__ModuleLoader__.load({
             setSearching(false)
             setData(cached)
             setSavedId(cached.savedId || null)
-            remember(cached)
+            remember(cached, signature)
             setPreload({ phase: 'hit', total: Number(cached.total) || 0 })
             if (Array.isArray(cached.history)) setHistory(cached.history)
             if (cached.index) setIndexStatus(cached.index)
@@ -2287,7 +2291,7 @@ window.__ModuleLoader__.load({
             if (controller.signal.aborted) return
             setData(payload)
             setSavedId(payload.savedId || null)
-            remember(payload)
+            remember(payload, signature)
             searchCache.set(signature, { at: Date.now(), payload })
             while (searchCache.size > 8) searchCache.delete(searchCache.keys().next().value)
             if (Array.isArray(payload.history)) setHistory(payload.history)
@@ -2390,11 +2394,27 @@ window.__ModuleLoader__.load({
         const controller = new AbortController()
         abortRef.current = controller
         try {
-          const payload = await api({ action: 'saved', id: entry.id }, controller.signal)
+          const signature = signatureOfEntry(entry)
+          const payload = await api(
+            {
+              action: 'saved',
+              id: entry.id,
+              types: typesForMode.join(','),
+              scope: scope === 'all' ? 'all' : scope,
+              sort: entrySort,
+            },
+            controller.signal,
+          )
           if (controller.signal.aborted) return
+          const returnedTypes = Array.isArray(payload.types) ? [...payload.types].sort() : []
+          const expectedTypes = [...typesForMode].sort()
+          if (JSON.stringify(returnedTypes) !== JSON.stringify(expectedTypes)) {
+            await runSearch(savedQuery, true)
+            return
+          }
           setData(payload)
           setSavedId(payload.savedId || entry.id)
-          remember(payload)
+          remember(payload, signature)
           if (Array.isArray(payload.history)) setHistory(payload.history)
           if (payload.index) setIndexStatus(payload.index)
         } catch (reason) {
@@ -3110,7 +3130,7 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', onClick: props.onUpdate }, t('results.update')),
             )
           : null,
-        !data && searching
+        searching
           ? h('div', { className: 'ds-skeleton', 'aria-hidden': 'true' }, h('div', { className: 'ds-skel' }), h('div', { className: 'ds-skel' }), h('div', { className: 'ds-skel short' }), h('div', { className: 'ds-skel' }))
           : !data
             ? null

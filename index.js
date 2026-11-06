@@ -123,6 +123,24 @@ async function handleRequest(index, store, request) {
       const id = (body && body.id) || url.searchParams.get('id')
       const saved = store.savedSearch(id)
       if (!saved) return json({ ok: false, error: { code: 'saved-missing', message: 'saved result not found' } }, 404)
+      // Saved views are keyed by query; verify the caller's filters so a page
+      // from a different type/scope/sort can never be shown as this one.
+      const wantedTypes = url.searchParams.get('types')
+      if (wantedTypes !== null) {
+        const requested = wantedTypes.split(',').map((value) => value.trim()).filter(Boolean).sort()
+        const stored = Array.isArray(saved.request?.types) ? [...saved.request.types].sort() : []
+        if (JSON.stringify(requested) !== JSON.stringify(stored)) {
+          return json({ ok: false, error: { code: 'saved-missing', message: 'saved result not found' } }, 404)
+        }
+      }
+      const wantedScope = url.searchParams.get('scope')
+      if (wantedScope !== null && String(saved.request?.scope ?? 'all') !== wantedScope) {
+        return json({ ok: false, error: { code: 'saved-missing', message: 'saved result not found' } }, 404)
+      }
+      const wantedSort = url.searchParams.get('sort')
+      if (wantedSort !== null && String(saved.request?.sort ?? 'relevance') !== wantedSort) {
+        return json({ ok: false, error: { code: 'saved-missing', message: 'saved result not found' } }, 404)
+      }
       const materialized = index.resolveSaved(saved)
       if (!materialized) {
         // The snapshot can no longer be resolved (index rebuilt and a doc is

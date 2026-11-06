@@ -15,7 +15,10 @@ for (let index = 0; index < 3200; index += 1) {
     ext: null,
   })
 }
+// A userText doc must never be returned by a modelText-only request.
+docs.push({ id: 'user-1', kind: 'userText', subtype: 'text', text: 'user gamma that must not leak', ext: null })
 const request = { types: ['reasoning', 'modelText'], exts: [], fileOnly: false, qLower: 'gamma' }
+const userTextRequest = { types: ['userText'], exts: [], fileOnly: false, qLower: 'gamma' }
 const inline = scanDocs(docs, request).sort((a, b) => (a.id < b.id ? -1 : 1))
 assert.ok(inline.length > 100)
 
@@ -28,6 +31,8 @@ for (const size of [2, 4]) {
   assert.deepEqual(sorted.slice(0, 5), inline.slice(0, 5))
   assert.deepEqual(sorted.slice(-5), inline.slice(-5))
 }
+const userTextMatches = await pool.search(userTextRequest, 2, docs, 12)
+assert.deepEqual(userTextMatches.map((match) => match.id), ['user-1'])
 const warm = await pool.search(request, 2, docs, 12)
 assert.ok(warm && warm.length === inline.length, 'warm pool changed the result')
 

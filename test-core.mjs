@@ -127,6 +127,12 @@ assert.ok(all.items.some((item) => item.kind === 'tools' && item.subtype === 're
 assert.equal(all.sessions.length, 1)
 assert.ok(all.items.every((item) => item.turn === 1))
 
+const bodyOnly = await index.search(parseSearchRequest(new URLSearchParams({ q: 'zeta-token', types: 'modelText' })))
+assert.ok(bodyOnly.items.length > 0)
+assert.ok(bodyOnly.items.every((item) => item.kind === 'modelText'), 'modelText filter leaked another kind')
+const userOnly = await index.search(parseSearchRequest(new URLSearchParams({ q: 'zeta-token', types: 'userText' })))
+assert.ok(userOnly.items.every((item) => item.kind === 'userText'), 'userText filter leaked another kind')
+
 const reasoningOnly = await index.search(
   parseSearchRequest(new URLSearchParams({ q: 'zeta-token', types: 'reasoning' })),
 )
