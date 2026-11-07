@@ -1,13 +1,12 @@
 {
   "name": "flash-anchor",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "private": true,
   "description": "FlashAnchor: block-anchored full-text search across every session's reasoning, tool calls, text, and files in the DSH Web GUI.",
   "type": "module",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
-    "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.png"
   },
   "files": [
@@ -17,9 +16,7 @@
     "search-pool.js",
     "worker.js",
     "cordis.patch.yml",
-    "locale/*.json",
     "icon.png",
-    "logo.png",
     "README.md"
   ],
   "dsh": {

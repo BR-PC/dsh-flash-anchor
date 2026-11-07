@@ -126,6 +126,7 @@ window.__ModuleLoader__.load({
       "deck.timing": "建面 {surface}ms · 匹配 {match}ms",
       "deck.wait": "准备 {ms}ms",
       "results.staleRebuild": "旧快照已失效，已重新搜索",
+    "jump.turnOnly": "已定位到第 {turn} 轮，但未找到具体段落",
       "time.justNow": "刚刚",
       "time.minutes": "{n} 分钟前",
       "time.hours": "{n} 小时前",
@@ -268,6 +269,7 @@ window.__ModuleLoader__.load({
       "deck.timing": "build {surface}ms · match {match}ms",
       "deck.wait": "prepare {ms}ms",
       "results.staleRebuild": "The old snapshot expired; searched again",
+    "jump.turnOnly": "Turn {turn} opened, but the exact block was not found",
       "time.justNow": "just now",
       "time.minutes": "{n} min ago",
       "time.hours": "{n} h ago",
@@ -1152,6 +1154,29 @@ window.__ModuleLoader__.load({
       return [...row.querySelectorAll(BLOCK_SELECTOR)]
     }
 
+    // The Chat DOM wraps user bubbles and reasoning bodies in plain divs, so a
+    // tag whitelist alone misses exactly those two kinds (0/14 user prompts and
+    // 0/4 reasoning chains ever located). Any element may be the hit block; the
+    // smallest one that still contains the needle is the most specific answer.
+    const BLOCK_MAX_TEXT = 4_000
+    const BLOCK_MAX_CANDIDATES = 800
+
+    function textCandidates(row, needleText) {
+      if (!row || !needleText) return []
+      const out = []
+      let visited = 0
+      const visit = (element) => {
+        if (visited >= BLOCK_MAX_CANDIDATES) return
+        visited += 1
+        const text = element.textContent
+        if (!text) return
+        if (text.length <= BLOCK_MAX_TEXT && matchText(text, needleText) > 0) out.push(element)
+        for (const child of element.children) visit(child)
+      }
+      for (const child of row.children) visit(child)
+      return out
+    }
+
     function deepestOf(elements) {
       return elements.filter((element) => !elements.some((other) => other !== element && element.contains(other)))
     }
@@ -1215,6 +1240,13 @@ window.__ModuleLoader__.load({
       if (card && (kind === 'tools' || kind === 'outputFiles' || kind === 'inputFiles')) {
         const element = deepestOf([card])[0] || card
         if (matchText(element.textContent, needle.text) > 0) return { element, reason: 'card', needle: needle.text }
+      }
+      const generic = textCandidates(row, needle.text)
+      if (generic.length > 0) {
+        let smallest = generic[0].textContent.length
+        for (const element of generic) smallest = Math.min(smallest, element.textContent.length)
+        const tied = generic.filter((element) => element.textContent.length === smallest)
+        return { element: deepestOf(tied)[0] || generic[0], reason: 'block', needle: needle.text }
       }
       if (matchText(row.textContent, needle.text) > 0) return { element: row, reason: 'row-text', needle: needle.text }
       return { element: null, reason: 'no-block', needle: needle.text }

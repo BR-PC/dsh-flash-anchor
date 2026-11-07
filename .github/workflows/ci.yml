@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax
+        run: |
+          node --check index.js
+          node --check client.js
+          node --check search-core.js
+          node --check search-pool.js
+          node --check worker.js
+      - name: Contracts
+        run: |
+          node test-core.mjs
+          node test-state.mjs
+          node test-prefs.mjs
+          node test-order.mjs
+          node test-worker.mjs
+          node test-locate.mjs
+          node test-i18n.mjs
+          node --expose-gc test-memory.mjs
+          node test-stress.mjs

@@ -8,7 +8,9 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 import { __test } from './index.js'
 
-const { buildSurfaceDocs, makeResultItem, CHUNK_SIZE, CHUNK_OVERLAP } = __test
+// MAX_CHUNKS comes from the implementation: writing 16 here again is how this
+// test drifted out of date when the cap moved to 256.
+const { buildSurfaceDocs, makeResultItem, CHUNK_SIZE, CHUNK_OVERLAP, MAX_CHUNKS } = __test
 
 const ROOT = process.env.DSH_SESSIONS || path.join(os.homedir(), '.dsh', 'sessions')
 const MAX_SESSIONS = Number(process.env.DSH_ANCHOR_MAX || 60)
@@ -151,7 +153,7 @@ for (const file of files.slice(0, MAX_SESSIONS)) {
 
     if (doc.subtype !== 'file' && (doc.blockKind === 'text' || doc.blockKind === 'reasoning' || doc.blockKind === 'tool-result')) {
       const raw = String(block.text ?? '').replace(/\u0000/g, '')
-      const capped = raw.length > CHUNK_SIZE * 16 ? raw.slice(0, CHUNK_SIZE * 16) : raw
+      const capped = raw.length > CHUNK_SIZE * MAX_CHUNKS ? raw.slice(0, CHUNK_SIZE * MAX_CHUNKS) : raw
       const slice = capped.slice(doc.chunk * STEP, doc.chunk * STEP + CHUNK_SIZE)
       check(
         doc.text === slice,

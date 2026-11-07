@@ -68,7 +68,11 @@ export function apply(ctx) {
       }),
     'flash-anchor: exact /api/flash-anchor fetch route',
   )
-  ctx.on('session/event', (sessionId) => index.noteSessionActivity(sessionId))
+  // The event payload is (session, event): the Session object, not its id.
+  ctx.on('session/event', (session) => {
+    const id = typeof session === 'string' ? session : session && session.id
+    index.noteSessionActivity(id)
+  })
   // Timers and workers survive a plugin reload unless the fiber owns them.
   ctx.effect(() => () => index.dispose(), 'flash-anchor: index timers and workers')
 }
@@ -173,7 +177,9 @@ async function handleRequest(index, store, request) {
       const scope = String((body && body.scope) || 'diag')
       // Log the payload itself: a synthetic Error stack only adds noise to
       // every click.
-      await store.logError('client:' + scope, JSON.stringify(body || {}))
+      // Same-origin only, but a diagnostic payload has no business growing
+      // without a bound in a rotated log file.
+      await store.logError('client:' + scope, JSON.stringify(body || {}).slice(0, 4_000))
       return json({ ok: true })
     }
     if (action !== 'search') {
@@ -422,7 +428,9 @@ class SearchIndex {
 
   noteSessionActivity(sessionId) {
     if (!this.store.state.autoIndex) return
-    this.dirty.add(String(sessionId))
+    // Anything other than a real id would poison the dirty set forever.
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    this.dirty.add(sessionId)
     if (this.dirtyTimer) clearTimeout(this.dirtyTimer)
     this.dirtyTimer = setTimeout(() => {
       this.dirtyTimer = null
@@ -723,7 +731,11 @@ class SearchIndex {
     const liveSession = this.optionalSessions()?.get(id)
     const liveSeq = liveSession ? Number(liveSession.seq) : undefined
     if (cached) {
-      const unchanged = !record.live || (liveSeq !== undefined && cached.seq === liveSeq)
+      // A failed read leaves an error shell. Treating it as "unchanged" hid
+      // that session until the plugin reloaded; retry it with backoff instead.
+      if (cached.error && Date.now() < Number(cached.retryAt || 0)) return cached
+      const unchanged =
+        !cached.error && (!record.live || (liveSeq !== undefined && cached.seq === liveSeq))
       if (unchanged) return cached
       // Two searches in a row must not rebuild and resend the live surface.
       if (options.reuseLive === true && record.live && Date.now() - (cached.builtAt || 0) < 2_000) return cached
@@ -745,15 +757,22 @@ class SearchIndex {
       return built
     } catch (error) {
       this.warnings += 1
-      if (cached) return cached
+      const message = error instanceof Error ? error.message : String(error)
+      if (cached) {
+        cached.error = message
+        cached.failures = Number(cached.failures || 0) + 1
+        cached.retryAt = Date.now() + Math.min(300_000, 5_000 * 2 ** (cached.failures - 1))
+        return cached
+      }
       const empty = {
         docs: [],
         fallbackTitle: null,
         seq: liveSeq,
         builtAt: Date.now(),
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
+        failures: 1,
+        retryAt: Date.now() + 5_000,
       }
-      if (cached) this.totalDocs -= cached.docs.length
       this.surfaces.set(id, empty)
       return empty
     }
@@ -848,11 +867,17 @@ class SearchIndex {
     const q = String(saved.request?.q || '')
     const qLower = q.toLowerCase()
     const items = []
+    let dropped = 0
     for (const id of saved.ids) {
       const entry = map.get(id)
       if (!entry) return null
       const matchIndex = qLower ? entry.doc.text.toLowerCase().indexOf(qLower) : 0
-      if (qLower && matchIndex === -1) continue
+      if (qLower && matchIndex === -1) {
+        // The document changed under the snapshot. The page is still usable,
+        // but it must not keep advertising the old total.
+        dropped += 1
+        continue
+      }
       items.push(
         makeResultItem({
           sessionId: entry.sessionId,
@@ -895,7 +920,7 @@ class SearchIndex {
       },
       scopeMissing: false,
       truncatedDocs: Number(meta.truncatedDocs) || 0,
-      total: meta.total ?? items.length,
+      total: dropped > 0 ? items.length : (meta.total ?? items.length),
       scanned: meta.scanned ?? 0,
       limit: meta.limit ?? items.length,
       truncated: meta.truncated === true,
@@ -969,9 +994,11 @@ function buildSurfaceDocs(snapshot, record) {
   let pendingTurn = null
   for (let index = snapshot.events.length - 1; index >= 0; index -= 1) {
     const event = snapshot.events[index]
-    const explicit = Number(event?.data?.turn)
-    if (Number.isFinite(explicit)) pendingTurn = explicit
-    eventTurn.set(Number(event.seq), Number.isFinite(explicit) ? explicit : pendingTurn)
+    const rawTurn = event?.data?.turn
+    // Number(null) is 0: a missing turn must not become Turn 0.
+    const explicit = rawTurn === null || rawTurn === undefined ? null : Number(rawTurn)
+    if (explicit !== null && Number.isFinite(explicit)) pendingTurn = explicit
+    eventTurn.set(Number(event.seq), explicit !== null && Number.isFinite(explicit) ? explicit : pendingTurn)
   }
 
   const pushDoc = (kind, subtype, text, event, extra = {}) => {
@@ -1013,7 +1040,11 @@ function buildSurfaceDocs(snapshot, record) {
     const displayName = name || basename(path)
     const ext = extensionOf(displayName) || extensionOf(path)
     if (!displayName && !ext) return
-    const key = `${kind}\u0000${displayName}\u0000${path}`
+    // Dedupe inside one Turn only: the args of a tool call and its "Presented"
+    // line name the same file once, but the same file shown in two Turns is two
+    // distinct hits and the old key kept just the first one.
+    const turnKey = eventTurn.get(Number(event.seq)) ?? Number(event.seq)
+    const key = `${turnKey}\u0000${kind}\u0000${displayName}\u0000${path}`
     if (seenFiles.has(key)) return
     seenFiles.add(key)
     const text = [displayName, path].filter(Boolean).join('\n')
@@ -1596,7 +1627,7 @@ class StateStore {
       Object.entries(manifest.sessions).map(async ([id, entry]) => {
         try {
           const parsed = JSON.parse(zlib.gunzipSync(await fs.readFile(this.sessionIndexFile(id))))
-          if (parsed?.docs) sessions[id] = { ...entry, ...parsed }
+          if (Array.isArray(parsed?.docs)) sessions[id] = { ...entry, ...parsed }
         } catch {
           /* a missing/corrupt shard is simply re-indexed */
         }
@@ -1611,15 +1642,17 @@ class StateStore {
    * session was streaming.
    */
   async saveIndex(surfaces, dirtyIds, removedIds) {
-    const ids = dirtyIds && dirtyIds.size > 0 ? [...dirtyIds] : [...surfaces.keys()]
+    // An explicit empty set means "only removals changed": write the manifest,
+    // never every shard.
+    const ids = dirtyIds ? [...dirtyIds] : [...surfaces.keys()]
     const removed = removedIds ? [...removedIds] : []
     const manifest = { version: INDEX_VERSION, savedAt: Date.now(), sessions: {} }
     for (const [id, entry] of surfaces) {
       manifest.sessions[id] = {
         seq: entry.seq ?? null,
         builtAt: entry.builtAt ?? null,
-        trunc: entry.truncated === true,
-        docs: entry.docs?.length ?? 0,
+        truncated: entry.truncated === true,
+        docCount: entry.docs?.length ?? 0,
       }
     }
     this.writeChain = this.writeChain
@@ -1712,4 +1745,5 @@ export const __test = {
   makeSnippet,
   CHUNK_SIZE,
   CHUNK_OVERLAP,
+  MAX_CHUNKS,
 }

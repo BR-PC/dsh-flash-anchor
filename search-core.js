@@ -59,9 +59,15 @@ export function scanDocs(docs, request) {
   for (const doc of docs) {
     if (!wanted.has(doc.kind)) continue
     if (fileOnly && (!doc.ext || !exts.has(doc.ext))) continue
-    if (qLower && doc.text.toLowerCase().indexOf(qLower) === -1) continue
-    if (!qLower && !fileOnly) continue
-    const matchIndex = qLower ? doc.text.toLowerCase().indexOf(qLower) : 0
+    // One lowercase pass, one indexOf: the match test and the match position
+    // are the same scan, and a short query walks every document twice otherwise.
+    let matchIndex = 0
+    if (qLower) {
+      matchIndex = doc.text.toLowerCase().indexOf(qLower)
+      if (matchIndex === -1) continue
+    } else if (!fileOnly) {
+      continue
+    }
     out.push({ id: doc.id, score: scoreDoc(doc, matchIndex, qLower.length, qLower), matchIndex })
   }
   return out

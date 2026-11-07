@@ -46,6 +46,7 @@ const HELPERS = [
   'needleOf',
   'matchText',
   'blockCandidates',
+  'textCandidates',
   'deepestOf',
   'findFileCard',
   'findBlockInRow',
@@ -94,6 +95,8 @@ const CONSTANTS = [
   'INPUT_MESSAGE_PREFIX',
   'BLOCK_SELECTOR',
   'CARD_SELECTOR',
+  'BLOCK_MAX_TEXT',
+  'BLOCK_MAX_CANDIDATES',
   'JUMP_VIEW_MS',
   'JUMP_LOCATE_MS',
 ]
@@ -427,7 +430,7 @@ function createRuntime(scene) {
       '\nreturn {' +
       ' jumpToHit: jumpToHit, findBlockInRow: findBlockInRow, needleOf: needleOf, matchText: matchText,' +
       ' nodeKeyOfAnchor: nodeKeyOfAnchor, pickSeatRow: pickSeatRow, resolveNodeKey: resolveNodeKey,' +
-      ' blockCandidates: blockCandidates, squashText: squashText,' +
+      ' blockCandidates: blockCandidates, squashText: squashText, textCandidates: textCandidates,' +
       ' nudgeTranscript: nudgeTranscript, chatScroller: chatScroller, chatViewState: chatViewState' +
       ' };',
   )
@@ -987,6 +990,36 @@ function record(name) {
   const up = await harness.runtime.nudgeTranscript(1)
   assert.equal(up, false, 'nudge with the Turn already mounted-area must not move: ' + scroller.scrollTop)
   record('transcript nudge moves toward the Turn')
+}
+
+
+// 22. A user bubble built from plain divs/span (no <p>): the generic leaf match
+//     must still land on the block instead of degrading to the whole row.
+{
+  const scene = buildScene()
+  const harness = createRuntime(scene)
+  const row = el('div', { 'data-chat-turn': '1' }, [
+    el('div', { class: 'bubble' }, [el('span', {}, [], { text: '我上次说的那句话是蓝色的' })]),
+  ])
+  const found = harness.runtime.findBlockInRow(row, { kind: 'userText', fragment: '那句话', anchor: { blockIndex: 0 } })
+  assert.equal(found.reason, 'block', 'user bubble was not located as a block: ' + JSON.stringify(found.reason))
+  assert.ok(found.element && found.element.textContent.indexOf('那句话') !== -1)
+  record('user bubble without semantic tags')
+}
+
+// 23. A reasoning body of plain divs (no <p>) must resolve to its leaf too.
+{
+  const scene = buildScene()
+  const harness = createRuntime(scene)
+  const row = el('div', { 'data-chat-turn': '2' }, [
+    el('div', { class: 'think-body' }, [
+      el('div', {}, [el('span', {}, [], { text: '先看日志，再决定要不要重启服务' })]),
+    ]),
+  ])
+  const found = harness.runtime.findBlockInRow(row, { kind: 'reasoning', fragment: '先看日志', anchor: { blockIndex: 0 } })
+  assert.equal(found.reason, 'block', 'reasoning body was not located as a block: ' + JSON.stringify(found.reason))
+  assert.ok(found.element && found.element.textContent.indexOf('先看日志') !== -1)
+  record('reasoning body without semantic tags')
 }
 
 console.log('deepsearch locate contracts: ok (' + checks.length + ' scenarios)')

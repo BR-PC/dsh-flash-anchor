@@ -3,6 +3,7 @@
 [![Release](https://img.shields.io/badge/release-v1.6.0-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
 [![License](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-DSH%20Desktop%20%C2%B7%20DSH%20Web-6366f1)](https://github.com/BR-PC/dsh-flash-anchor)
+[![CI](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml/badge.svg)](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml)
 
 > 在 **DSH（DeepSeek Harness）** 里，把所有会话正文、思维链、工具调用与结果、输入/输出文件放到一个搜索框里检索，
 > 点开结果直接落到产生命中的那个**段落/代码块/文件卡片/工具卡片**，而不是会话顶部。
@@ -41,7 +42,8 @@
 
 ### 性能
 
-- **语料缓存**：索引未变化时搜索不再重建 1 万+ 文档数组，命中中位数 ~6 ms（24 会话 / 12 346 文档实测）。
+- **语料缓存**：索引未变化时搜索不再重建 1 万+ 文档数组；命中较少的查询 p50 ≈ 6–8 ms，
+  单字符这类宽匹配（上万命中）约 200 ms（24 会话 / 12 900 文档实测）。
 - **按会话分片落盘**：`$DSH_HOME/flash-anchor/index/` 下每会话一个 gzip 分片，只重写变化的会话——
   实测单会话写入 22 ms，而整库写入 698 ms；旧版每 6 秒整库重写是 GUI 卡顿的主因之一。
 - **后台索引让路**：搜索进行中不重建 surface；流式会话最多每 20 秒重建一次；只有新会话出现时才重列会话表。
@@ -101,7 +103,7 @@ npm pack                      # 生成 flash-anchor-<version>.tgz
 
 | 操作 | 说明 |
 | --- | --- |
-| 打开 | 左侧栏底部「闪电锚点」，或命令面板搜索 FlashAnchor |
+| 打开 | 左侧栏底部「闪电锚点」 |
 | 搜索 | 输入关键词后 Enter；结果按会话分组，显示命中轮次与时间 |
 | 筛选 | 左侧设置：范围（全部/指定会话）、目标类型、排序；结果页顶部 chips 始终反映**当前页面**的筛选 |
 | 历史 | 历史条目保存的是**当时那次搜索**的结果与耗时；索引变化后显示“缓存可能已过期”，可一键更新 |
@@ -158,6 +160,8 @@ node test-anchor.mjs
 4. 单个文档最多索引 256 段（≈1 MB），超出部分不可搜且有截断提示。
 5. 结果默认上限 400 条（可预加载到 2000）；超出会提示“已截断”。
 6. 历史 12 条 / 快照 LRU 50；如需更多需调整 `MAX_HISTORY`。
+7. **定位依赖 Chat DOM 契约**（`data-chat-turn`、`data-chat-node-key`、`data-chat-group-part`、`data-tool` 等）：DSH 改版后若这些属性变化，定位会降级为“只到该轮”。每次跳转的诊断写在 `errors.log` 的 `[client:jump]` 行，可据此区分选择器失配与内容未挂载。
+8. 真实的短查询成本高于“中位数”：单字符宽匹配约 200 ms，属单线程匹配的物理成本。
 
 ## 致谢与作者
 

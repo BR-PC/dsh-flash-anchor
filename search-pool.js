@@ -147,6 +147,12 @@ export class SearchPool {
         })
         this.version = version
       }
+      // Promise.all([]) resolves to [] (truthy): a half-spawned pool would
+      // otherwise be reported as a valid empty match set.
+      if (this.workers.length !== size) {
+        this.fail(new Error('worker-count'))
+        return null
+      }
       const readiness = await Promise.all(this.workers.map((worker) => this.ready.get(worker)))
       if (readiness.some((value) => value !== true)) {
         this.fail(new Error('worker-not-ready'))
