@@ -18,10 +18,10 @@
 
 | 版本 | 说明 |
 | --- | --- |
-| [v1.5.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.5.0) | 首个公开发布：块级锚点、Worker 池、物化视图、新图标 |
+| v1.5.0 | 首个公开发布：块级锚点、Worker 池、物化视图、新图标 |
 | v1.5.1 / v1.5.2 | 过滤条件校验、缓存签名、骨架屏、锚定严格失败、冷启动等待视图 |
 | **v1.6.0** | 会话筛选与会话缓存隔离、缓存耗时如实展示、长文不再截断、按会话分片落盘与语料缓存、Worker 自动恢复 |
-| **v1.6.1** | 修复了若干已知问题，详见https://github.com/BR-PC/dsh-flash-anchor/compare/v1.5.0...v1.6.1 |
+| **[v1.6.1](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.6.1)** | 修复了若干已知问题，详见[v1.5.0...v1.6.1](https://github.com/BR-PC/dsh-flash-anchor/compare/v1.5.0...v1.6.1) |
 
 ## 功能
 
