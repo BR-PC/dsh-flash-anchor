@@ -13,7 +13,7 @@
 
 首个公开版本 **v1.5.0** 于 2026-11-06 发布，包含块级锚点、分片 Worker、物化视图与 Scroll Router：
 
-[![v1.5.0](icon.png)](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.5.0)
+[v1.5.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.5.0)
 
 | 版本 | 说明 |
 | --- | --- |
@@ -139,6 +139,16 @@ node test-stress.mjs
 node test-real-filters.mjs   # 真实语料：类型/范围/缓存计时/长文
 node test-anchor.mjs
 ```
+
+## 实机截图
+<img width="1249" height="895" alt="展示0" src="https://github.com/user-attachments/assets/a38fce73-d249-412e-855e-474479862fa0" />
+
+<img width="1237" height="894" alt="展示1" src="https://github.com/user-attachments/assets/c12b0a43-4b23-4b14-9bb2-e9b0e97ed422" />
+
+<img width="1130" height="759" alt="展示2" src="https://github.com/user-attachments/assets/24bd2087-2bc0-43f7-a380-25da58ef7c89" />
+
+
+
 
 ## 已知限制
 
