@@ -1,6 +1,6 @@
 {
   "name": "flash-anchor",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "private": true,
   "description": "FlashAnchor: block-anchored full-text search across every session's reasoning, tool calls, text, and files in the DSH Web GUI.",
   "type": "module",
@@ -37,6 +37,23 @@
       ]
     }
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BR-PC/dsh-flash-anchor.git"
+  },
+  "homepage": "https://github.com/BR-PC/dsh-flash-anchor#readme",
+  "bugs": {
+    "url": "https://github.com/BR-PC/dsh-flash-anchor/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "search",
+    "full-text",
+    "session"
+  ],
   "author": "DeepSeek-V4.1-Flash-1017 (AI agent) <noreply@deepseek.com>",
   "contributors": [
     "BR-PC (product direction, review, acceptance testing)"

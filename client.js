@@ -118,6 +118,9 @@ window.__ModuleLoader__.load({
       "deck.within": "会话内",
       "deck.noExt": "不限后缀",
       "deck.cached": "缓存",
+    "deck.original": "原搜索 {ms}ms",
+    "deck.degraded": "单线程降级",
+    "results.scopeMissing": "该会话已不存在，请重新选择会话",
       "deck.threads": "{n} 线程",
       "deck.inline": "单线程",
       "deck.timing": "建面 {surface}ms · 匹配 {match}ms",
@@ -257,6 +260,9 @@ window.__ModuleLoader__.load({
       "deck.within": "within session",
       "deck.noExt": "Any suffix",
       "deck.cached": "cached",
+    "deck.original": "search {ms}ms",
+    "deck.degraded": "degraded",
+    "results.scopeMissing": "That session no longer exists; pick another one",
       "deck.threads": "{n} threads",
       "deck.inline": "single thread",
       "deck.timing": "build {surface}ms · match {match}ms",
@@ -2333,30 +2339,34 @@ window.__ModuleLoader__.load({
       }
 
       const runSearch = React.useCallback(
-        async (override, force) => {
-          const text = String(typeof override === 'string' ? override : query).trim()
-          const suffix = ext.trim()
+        // filters: run this exact filter set instead of the current state. A
+        // saved view that expired replays its own filters, never the stale
+        // React state left over from the previous render.
+        async (override, force, filters) => {
+          const active = filters || { query, scopeMode, selectedSession, types, ext, sort, timeOrder }
+          const text = String(typeof override === 'string' ? override : active.query).trim()
+          const suffix = String(active.ext || '').trim()
           if (!text && !suffix) {
             showNotice(t('need.query'))
             if (inputRef.current) inputRef.current.focus()
             return
           }
-          if (scopeMode === 'session' && !selectedSession) {
+          if (active.scopeMode === 'session' && !active.selectedSession) {
             showNotice(t('need.session'))
             return
           }
-          if (types.length === 0) {
+          if (!Array.isArray(active.types) || active.types.length === 0) {
             showNotice(t('need.types'))
             return
           }
           const signature = searchSignature({
             query: text,
-            scopeMode,
-            selectedSession,
-            types,
+            scopeMode: active.scopeMode,
+            selectedSession: active.selectedSession,
+            types: active.types,
             ext: suffix,
-            sort,
-            timeOrder,
+            sort: active.sort,
+            timeOrder: active.timeOrder,
           })
           lastSearchRef.current = signature
           if (override) setQuery(override)
@@ -2371,7 +2381,7 @@ window.__ModuleLoader__.load({
             setSearching(false)
             setData(near.payload)
             setSavedId(near.payload.savedId || null)
-            remember(near.payload)
+            remember(near.payload, signature)
             if (Array.isArray(near.payload.history)) setHistory(near.payload.history)
             if (near.payload.index) setIndexStatus(near.payload.index)
             return near.payload
@@ -2402,16 +2412,20 @@ window.__ModuleLoader__.load({
           const request = {
             action: 'search',
             q: text,
-            scope: scopeMode === 'session' ? selectedSession : 'all',
-            types: types.join(','),
+            scope: active.scopeMode === 'session' ? active.selectedSession : 'all',
+            types: active.types.join(','),
             ext: suffix,
-            sort: sort === 'time' ? (timeOrder === 'asc' ? 'time-asc' : 'time') : 'relevance',
+            sort: active.sort === 'time' ? (active.timeOrder === 'asc' ? 'time-asc' : 'time') : 'relevance',
             limit: 400,
             threads: scatter ? threads : 1,
+            // The Host echoes this back, so a late response for an older filter
+            // set can never be displayed under the current chips.
+            sig: signature,
           }
           try {
             const payload = await api(request, controller.signal)
             if (controller.signal.aborted) return
+            if (payload.signature && payload.signature !== signature) return
             setData(payload)
             setSavedId(payload.savedId || null)
             remember(payload, signature)
@@ -2419,6 +2433,7 @@ window.__ModuleLoader__.load({
             while (searchCache.size > 8) searchCache.delete(searchCache.keys().next().value)
             if (Array.isArray(payload.history)) setHistory(payload.history)
             if (payload.index) setIndexStatus(payload.index)
+            if (payload.scopeMissing) showNotice(t('results.scopeMissing'))
             if (!speculative) setPreload({ phase: 'off', total: 0 })
             else if (!payload || !payload.truncated) setPreload({ phase: 'complete', total: Number(payload && payload.total) || 0 })
             lastPayloadRef.current = payload
@@ -2520,7 +2535,7 @@ window.__ModuleLoader__.load({
         const controller = new AbortController()
         abortRef.current = controller
         try {
-          const signature = signatureOfEntry(entry)
+          const signature = entrySignature
           const payload = await api(
             {
               action: 'saved',
@@ -2528,14 +2543,30 @@ window.__ModuleLoader__.load({
               types: typesForMode.join(','),
               scope: scope === 'all' ? 'all' : scope,
               sort: entrySort,
+              ext: entryExts.join(','),
+              sig: signature,
             },
             controller.signal,
           )
           if (controller.signal.aborted) return
           const returnedTypes = Array.isArray(payload.types) ? [...payload.types].sort() : []
           const expectedTypes = [...typesForMode].sort()
-          if (JSON.stringify(returnedTypes) !== JSON.stringify(expectedTypes)) {
-            await runSearch(savedQuery, true)
+          const wrongFilters =
+            JSON.stringify(returnedTypes) !== JSON.stringify(expectedTypes) ||
+            (payload.signature && payload.signature !== signature) ||
+            String(payload.scope ?? 'all') !== String(scope === 'all' ? 'all' : scope)
+          if (wrongFilters) {
+            // The snapshot describes other filters: replay this entry's own
+            // filters, not the ones still sitting in React state.
+            await runSearch(savedQuery, true, {
+          query: savedQuery,
+          scopeMode: scope === 'all' ? 'all' : 'session',
+          selectedSession: scope === 'all' ? '' : scope,
+          types: typesForMode,
+          ext: '',
+          sort: entrySort === 'relevance' ? 'relevance' : 'time',
+          timeOrder: entrySort === 'time-asc' ? 'asc' : 'desc',
+        })
             return
           }
           setData(payload)
@@ -2548,7 +2579,15 @@ window.__ModuleLoader__.load({
           // The snapshot was cleared or evicted: fall back to one search.
           if (savedQuery.trim()) {
             if (reason && reason.message === 'saved result not found') showNotice(t('results.staleRebuild'))
-            await runSearch(savedQuery, true)
+            await runSearch(savedQuery, true, {
+          query: savedQuery,
+          scopeMode: scope === 'all' ? 'all' : 'session',
+          selectedSession: scope === 'all' ? '' : scope,
+          types: typesForMode,
+          ext: '',
+          sort: entrySort === 'relevance' ? 'relevance' : 'time',
+          timeOrder: entrySort === 'time-asc' ? 'asc' : 'desc',
+        })
             return
           }
           setResultsOpen(false)
@@ -2649,6 +2688,13 @@ window.__ModuleLoader__.load({
           ? t('deck.within') + ' · ' + (selectedTitle || t('scope.noSession'))
           : t('deck.allSessions')
       const typeSummary = types.map((kind) => kindLabel(t, kind)).join(' · ')
+      // What the deck must currently be showing. A payload whose signature
+      // differs belongs to another filter set and is never rendered.
+      const currentSignature = searchSignature({ query, scopeMode, selectedSession, types, ext, sort, timeOrder })
+      const titleOfSession = (id) => {
+        const found = sessionsState.items.find((item) => item.id === id)
+        return found && found.title ? found.title : String(id || '')
+      }
 
       return h(
         'div',
@@ -2800,6 +2846,8 @@ window.__ModuleLoader__.load({
                   scopeSummary,
                   typeSummary,
                   objectLabel: t('object.' + objectMode),
+                  signature: currentSignature,
+                  titleOf: titleOfSession,
                   preload,
                   speculative,
                 })
@@ -3150,10 +3198,30 @@ window.__ModuleLoader__.load({
 
     function ResultsDeck(props) {
       const { t, data, searching, error } = props
+      // A payload is only this filter set's page when its signature says so.
+      // Rows under chips that describe another filter set is exactly how a
+      // reasoning hit used to show up labelled "user input".
+      const view = data && (!data.signature || !props.signature || data.signature === props.signature) ? data : null
+      const pending = searching || (data != null && view === null)
+      const viewTypes = view && Array.isArray(view.types) && view.types.length > 0 ? view.types : null
+      const viewHasModel = viewTypes ? viewTypes.some((kind) => MODEL_TYPES.includes(kind)) : false
+      const viewHasUser = viewTypes ? viewTypes.some((kind) => USER_TYPES.includes(kind)) : false
+      const chipObject = viewTypes
+        ? t('object.' + (viewHasModel && viewHasUser ? 'all' : viewHasUser ? 'user' : 'model'))
+        : props.objectLabel
+      const chipScope = view
+        ? view.scope && view.scope !== 'all'
+          ? t('deck.within') + ' · ' + props.titleOf(view.scope)
+          : t('deck.allSessions')
+        : props.scopeSummary
+      const chipTypes = viewTypes ? viewTypes.map((kind) => kindLabel(t, kind)).join(' · ') : props.typeSummary
+      // A cached page reports its own hit cost; the search cost it replaces is
+      // kept beside it so the two numbers can never be confused.
+      const original = view && view.cached && view.original ? view.original : view
       const groups = React.useMemo(() => {
-        if (!data || !Array.isArray(data.items)) return []
+        if (!view || !Array.isArray(view.items)) return []
         const bySession = new Map()
-        for (const item of data.items) {
+        for (const item of view.items) {
           let bucket = bySession.get(item.sessionId)
           if (!bucket) {
             bucket = []
@@ -3163,7 +3231,7 @@ window.__ModuleLoader__.load({
         }
         const seen = new Set()
         const result = []
-        for (const session of data.sessions || []) {
+        for (const session of view.sessions || []) {
           const items = bySession.get(session.id) || []
           if (items.length === 0) continue
           seen.add(session.id)
@@ -3174,7 +3242,7 @@ window.__ModuleLoader__.load({
           result.push({ id, title: items[0].sessionTitle, cwd: items[0].cwd, count: items.length, items })
         }
         return result
-      }, [data])
+      }, [view])
 
       return h(
         'section',
@@ -3190,13 +3258,13 @@ window.__ModuleLoader__.load({
             h(
               'p',
               null,
-              data
+              view
                 ? t('results.summary', {
-                    count: data.total,
-                    sessions: Array.isArray(data.sessions) ? data.sessions.length : 0,
-                    ms: data.tookMs,
+                    count: view.total,
+                    sessions: Array.isArray(view.sessions) ? view.sessions.length : 0,
+                    ms: view.tookMs,
                   })
-                : searching
+                : pending
                   ? t('results.loading')
                   : t('empty.query'),
             ),
@@ -3207,29 +3275,33 @@ window.__ModuleLoader__.load({
             h(RefreshIcon, { size: 15, className: searching ? 'ds-spin' : null }),
           ),
         ),
-        searching ? h('div', { className: 'ds-progress' }) : null,
+        pending ? h('div', { className: 'ds-progress' }) : null,
         h(
           'div',
           { className: 'ds-deck-filters' },
           h('span', { className: 'ds-deck-filter-label' }, t('deck.filters')),
-          h('span', { className: 'ds-deck-chip' }, props.scopeSummary),
-          h('span', { className: 'ds-deck-chip' }, props.objectLabel),
-          h('span', { className: 'ds-deck-chip' }, props.typeSummary),
-          data && data.query ? h('span', { className: 'ds-deck-chip' }, '“' + data.query + '”') : null,
-          data && data.cached ? h('span', { className: 'ds-deck-chip' }, t('deck.cached')) : null,
-          data && data.threads
-            ? h('span', { className: 'ds-deck-chip' }, data.threads > 1 ? t('deck.threads', { n: data.threads }) : t('deck.inline'))
+          h('span', { className: 'ds-deck-chip' }, chipScope),
+          h('span', { className: 'ds-deck-chip' }, chipObject),
+          h('span', { className: 'ds-deck-chip' }, chipTypes),
+          view && view.query ? h('span', { className: 'ds-deck-chip' }, '“' + view.query + '”') : null,
+          view && view.cached ? h('span', { className: 'ds-deck-chip' }, t('deck.cached')) : null,
+          view && view.degraded ? h('span', { className: 'ds-deck-chip' }, t('deck.degraded')) : null,
+          view && view.cached && Number(view.originalTookMs) >= 0
+            ? h('span', { className: 'ds-deck-chip' }, t('deck.original', { ms: Number(view.originalTookMs) }))
             : null,
-          data && Number.isFinite(data.surfaceMs)
-            ? h('span', { className: 'ds-deck-chip' }, t('deck.timing', { surface: data.surfaceMs, match: Number(data.matchMs) || 0 }))
+          view && view.threads
+            ? h('span', { className: 'ds-deck-chip' }, view.threads > 1 ? t('deck.threads', { n: view.threads }) : t('deck.inline'))
             : null,
-          data && Number(data.ensureMs || 0) + Number(data.listMs || 0) + Number(data.otherMs || 0) > 50
+          original && Number.isFinite(original.surfaceMs)
+            ? h('span', { className: 'ds-deck-chip' }, t('deck.timing', { surface: original.surfaceMs, match: Number(original.matchMs) || 0 }))
+            : null,
+          original && Number(original.ensureMs || 0) + Number(original.listMs || 0) + Number(original.otherMs || 0) > 50
             ? h(
                 'span',
                 { className: 'ds-deck-chip' },
                 t('deck.wait', {
                   ms:
-                    Number(data.ensureMs || 0) + Number(data.listMs || 0) + Number(data.otherMs || 0),
+                    Number(original.ensureMs || 0) + Number(original.listMs || 0) + Number(original.otherMs || 0),
                 }),
               )
             : null,
@@ -3248,7 +3320,7 @@ window.__ModuleLoader__.load({
             : null,
         ),
         error ? h('div', { className: 'ds-error', role: 'alert' }, h('span', null, error), h('button', { type: 'button', onClick: props.onRetry }, t('results.retry'))) : null,
-        data && data.stale
+        view && view.stale
           ? h(
               'div',
               { className: 'ds-stale', role: 'status' },
@@ -3256,11 +3328,11 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', onClick: props.onUpdate }, t('results.update')),
             )
           : null,
-        searching
+        pending
           ? h('div', { className: 'ds-skeleton', 'aria-hidden': 'true' }, h('div', { className: 'ds-skel' }), h('div', { className: 'ds-skel' }), h('div', { className: 'ds-skel short' }), h('div', { className: 'ds-skel' }))
-          : !data
+          : !view
             ? null
-            : data.items.length === 0
+            : view.items.length === 0
               ? h(
                   'div',
                   { className: 'ds-deck-empty' },

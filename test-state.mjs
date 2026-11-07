@@ -21,6 +21,12 @@ assert.equal(reloaded.state.prefs.query, 'hello')
 assert.equal(reloaded.state.history[0].id, entry.id)
 const stored = reloaded.savedSearch(entry.id)
 assert.equal(stored.meta.total, 3)
+// The saved page keeps the search cost it was produced with; a cached click
+// must never report the time a re-search would have taken.
+assert.equal(Number(stored.meta.tookMs), 0)
+// A saved page belongs to one scope: another scope must miss, not reuse it.
+assert.equal(reloaded.matchSaved({ ...request, scope: 's-other' }), null)
+assert.ok(reloaded.matchSaved(request), 'the recorded scope must still match')
 assert.deepEqual(stored.ids, [])
 assert.equal(stored.payload, undefined)
 assert.equal(stored.compressed ?? null, null)

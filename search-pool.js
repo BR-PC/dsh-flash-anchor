@@ -11,6 +11,8 @@ export class SearchPool {
     this.size = 0
     this.version = -1
     this.degraded = false
+    this.failures = 0
+    this.retryAt = 0
     this.seq = 0
     this.pending = new Map()
     this.ready = new Map()
@@ -32,10 +34,17 @@ export class SearchPool {
     this.readyResolvers.clear()
   }
 
+  /**
+   * A dead worker degrades the pool, but only until a cooldown expires: a
+   * transient OOM must not make every later search single-threaded for the rest
+   * of the process. The delay doubles per consecutive failure, capped at 15 min.
+   */
   fail(reason) {
     if (this.degraded) return
     this.degraded = true
     this.lastError = reason
+    this.failures = (this.failures || 0) + 1
+    this.retryAt = Date.now() + Math.min(15 * 60_000, 60_000 * 2 ** (this.failures - 1))
     void this.dispose()
   }
 
@@ -119,7 +128,14 @@ export class SearchPool {
 
   /** Scan with size workers; null means the caller must scan inline. */
   async search(request, size, docs, version, timeoutMs = 20000) {
-    if (this.degraded || size < 2) return null
+    if (this.degraded) {
+      if (Date.now() < (this.retryAt || 0)) return null
+      // Cooldown over: drop the degraded state and try a fresh pool.
+      this.degraded = false
+      this.failures = 0
+      await this.dispose()
+    }
+    if (size < 2) return null
     try {
       if (this.size !== size) {
         await this.dispose()

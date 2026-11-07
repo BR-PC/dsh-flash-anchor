@@ -20,15 +20,19 @@ const ROUTE_PATH = '/api/flash-anchor'
 const STATE_VERSION = 1
 // 2: blockIndex/seatIndex/fileIndex are part of the address; a v1 cache has
 // docs without them and could alias two blocks.
-const INDEX_VERSION = 2
+// 3: the index is a manifest plus one gzip shard per session, so a live
+// update rewrites a few hundred KB instead of the whole corpus.
+const INDEX_VERSION = 3
 const TITLE_CACHE_MS = 30_000
 // Background reindexing of a streaming session is a CPU furnace; searches
 // still read it fresh, but automatic tracking may lag a few seconds.
-const LIVE_REBUILD_MS = 15_000
+const LIVE_REBUILD_MS = 20_000
 const gzip = promisify(zlib.gzip)
 const CHUNK_SIZE = 4_000
 const CHUNK_OVERLAP = 200
-const MAX_CHUNKS = 16
+// A document is never truncated for being long: 256 chunks (≈1 MB) covers any
+// real tool result, and a hit past the old 64 k cap was silently unsearchable.
+const MAX_CHUNKS = 256
 const ALL_TYPES = Object.freeze([
   'reasoning',
   'modelText',
@@ -65,6 +69,8 @@ export function apply(ctx) {
     'flash-anchor: exact /api/flash-anchor fetch route',
   )
   ctx.on('session/event', (sessionId) => index.noteSessionActivity(sessionId))
+  // Timers and workers survive a plugin reload unless the fiber owns them.
+  ctx.effect(() => () => index.dispose(), 'flash-anchor: index timers and workers')
 }
 
 async function handleRequest(index, store, request) {
@@ -141,6 +147,11 @@ async function handleRequest(index, store, request) {
       if (wantedSort !== null && String(saved.request?.sort ?? 'relevance') !== wantedSort) {
         return json({ ok: false, error: { code: 'saved-missing', message: 'saved result not found' } }, 404)
       }
+      // The Client's signature is the exact filter set it is showing.
+      const wantedSig = url.searchParams.get('sig')
+      if (wantedSig && saved.signature && wantedSig !== saved.signature) {
+        return json({ ok: false, error: { code: 'saved-missing', message: 'saved result not found' } }, 404)
+      }
       const materialized = index.resolveSaved(saved)
       if (!materialized) {
         // The snapshot can no longer be resolved (index rebuilt and a doc is
@@ -209,9 +220,24 @@ async function handleRequest(index, store, request) {
   }
 }
 
+/**
+ * The Client's own name for this exact request. The Host only echoes it, so a
+ * page can never be shown under chips that describe another filter set.
+ */
+function canonicalSignature({ q, scope, types, exts, sort }) {
+  return JSON.stringify([
+    String(q || ''),
+    scope || 'all',
+    [...(types || [])].slice().sort(),
+    [...(exts || [])].slice().sort(),
+    sort || 'relevance',
+  ])
+}
+
 function parseSearchRequest(params) {
   const q = (params.get('q') ?? '').trim().slice(0, MAX_QUERY_LENGTH)
   const scope = (params.get('scope') ?? 'all').trim()
+  const sig = (params.get('sig') ?? '').slice(0, 600)
   const rawTypes = (params.get('types') ?? '').split(',').map((value) => value.trim()).filter(Boolean)
   const types = rawTypes.filter((value) => ALL_TYPES.includes(value))
   const rawExt = params.get('ext') ?? ''
@@ -237,15 +263,17 @@ function parseSearchRequest(params) {
   const threads = Number.isFinite(requestedThreads)
     ? Math.min(MAX_THREADS, Math.max(1, requestedThreads))
     : 2
+  const resolvedTypes = types.length > 0 ? types : [...ALL_TYPES]
   return {
     q,
     scope: scope === 'all' || scope === '' ? null : scope,
-    types: types.length > 0 ? types : [...ALL_TYPES],
+    types: resolvedTypes,
     exts,
     sort,
     limit,
     threads,
     preload,
+    sig: sig || canonicalSignature({ q, scope: scope === 'all' || scope === '' ? null : scope, types: resolvedTypes, exts, sort }),
   }
 }
 
@@ -274,10 +302,16 @@ class SearchIndex {
     this.warnings = 0
     this.job = null
     this.dirty = new Set()
+    this.dirtySessions = new Set()
+    this.removedSessions = new Set()
     this.dirtyTimer = null
     this.persistTimer = null
+    this.persisting = null
     this.pool = new SearchPool(new URL('./worker.js', import.meta.url))
     this.corpusVersion = 1
+    this.titleVersion = 0
+    this.activeSearches = 0
+    this.corpusCache = null
     this.ready = this.bootstrap()
   }
 
@@ -288,6 +322,9 @@ class SearchIndex {
       if (cached && cached.sessions) {
         this.surfaces = new Map(Object.entries(cached.sessions))
         this.totalDocs = [...this.surfaces.values()].reduce((sum, entry) => sum + (entry.docs?.length ?? 0), 0)
+        // A legacy unified index is migrated to per-session shards on the first
+        // persist instead of being rewritten inside bootstrap.
+        if (cached.legacy) for (const id of this.surfaces.keys()) this.dirtySessions.add(id)
       }
       await this.reloadSessions(true)
       this.pruneRemoved()
@@ -327,6 +364,7 @@ class SearchIndex {
         removed = true
         this.totalDocs -= this.surfaces.get(id)?.docs?.length ?? 0
         this.surfaces.delete(id)
+        this.removedSessions.add(id)
         this.corpusVersion += 1
       }
     }
@@ -338,12 +376,23 @@ class SearchIndex {
 
   schedulePersist() {
     if (this.persistTimer) clearTimeout(this.persistTimer)
-    // Persisting a 14 MB index is expensive; batch bursts of live updates and
-    // keep the gzip off the event loop.
+    // Only changed sessions are rewritten, but a streaming session still
+    // updates every few seconds; batch a longer window to keep the CPU quiet.
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null
-      void this.store.saveIndex(this.surfaces)
-    }, 6_000)
+      if (this.persisting) return this.schedulePersist()
+      const dirty = new Set(this.dirtySessions)
+      const removed = new Set(this.removedSessions)
+      this.dirtySessions.clear()
+      this.removedSessions.clear()
+      this.persisting = this.store
+        .saveIndex(this.surfaces, dirty, removed)
+        .catch(() => {})
+        .finally(() => {
+          this.persisting = null
+          if (this.dirtySessions.size > 0 || this.removedSessions.size > 0) this.schedulePersist()
+        })
+    }, 15_000)
   }
 
   async startAll() {
@@ -383,9 +432,21 @@ class SearchIndex {
 
   async flushDirty() {
     if (this.dirty.size === 0) return
+    // Background re-indexing competes with the search the user is waiting for.
+    if (this.activeSearches > 0) {
+      this.dirtyTimer = setTimeout(() => {
+        this.dirtyTimer = null
+        void this.flushDirty()
+      }, 3_000)
+      return
+    }
     const ids = [...this.dirty]
     this.dirty.clear()
-    await this.reloadSessions(false)
+    // A streaming Session fires an event batch every second. Re-listing on
+    // every batch kept the Host parsing headers for nothing; the list only has
+    // to learn about new or removed Sessions.
+    const unknown = ids.some((id) => !this.recordById.has(id))
+    if (unknown || Date.now() - this.listAt > 30_000) await this.reloadSessions(false)
     for (const id of ids) {
       const record = this.recordById.get(id)
       if (!record) continue
@@ -407,7 +468,10 @@ class SearchIndex {
     this.surfaces.clear()
     this.totalDocs = 0
     this.corpusVersion += 1
+    this.corpusCache = null
     this.dirty.clear()
+    this.dirtySessions.clear()
+    this.removedSessions.clear()
     this.store.clearSavedSearches()
     this.store.bumpRevision()
     await this.store.clearIndex()
@@ -450,6 +514,7 @@ class SearchIndex {
         const cached = this.surfaces.get(id)
         this.totalDocs -= cached.docs.length
         this.surfaces.delete(id)
+        this.removedSessions.add(id)
         this.corpusVersion += 1
       }
     }
@@ -474,6 +539,7 @@ class SearchIndex {
         }
       }
       this.titles = titles
+      this.titleVersion += 1
     } catch {
       /* titles are cosmetic */
     }
@@ -500,7 +566,16 @@ class SearchIndex {
     return cached?.fallbackTitle || null
   }
 
-  async search({ q, scope, types, exts, sort, limit, threads }) {
+  async search({ q, scope, types, exts, sort, limit, threads, sig }) {
+    this.activeSearches += 1
+    try {
+      return await this.searchOnce({ q, scope, types, exts, sort, limit, threads, sig })
+    } finally {
+      this.activeSearches -= 1
+    }
+  }
+
+  async searchOnce({ q, scope, types, exts, sort, limit, threads, sig }) {
     const started = Date.now()
     const ensureStarted = Date.now()
     await this.ensureReady()
@@ -515,9 +590,13 @@ class SearchIndex {
     }
 
     let targets = this.records
+    let scopeMissing = false
     if (scope) {
       const exact = this.recordById.get(scope)
       targets = exact ? [exact] : []
+      // An unknown session id must read as "this session is gone", never as
+      // "this session has no matches".
+      scopeMissing = !exact
     }
 
     const warningsBefore = this.warnings
@@ -531,20 +610,14 @@ class SearchIndex {
     const extSet = new Set(exts)
     const fileOnly = extSet.size > 0 && types.some((kind) => FILE_TYPES.has(kind))
 
-    // One flat corpus for both the worker pool and the inline fallback. The
-    // id is the same address the Client uses to locate the block.
-    const docs = []
-    const docMeta = new Map()
-    for (const record of targets) {
-      const sessionId = record.header.id
-      const cached = this.surfaces.get(sessionId)
-      if (!cached) continue
-      const sessionTitle = this.titleOf(sessionId) ?? record.header.id
-      for (const doc of cached.docs) {
-        const id = docKey(sessionId, doc)
-        docs.push({ id, kind: doc.kind, subtype: doc.subtype, text: doc.text, ext: doc.ext || null })
-        docMeta.set(id, { sessionId, record, sessionTitle, doc })
-      }
+    // One flat corpus for both the worker pool and the inline fallback, built
+    // once per index change instead of on every keystroke's search.
+    const corpus = this.corpus()
+    const docMeta = corpus.meta
+    let docs = corpus.docs
+    if (scope) {
+      const allowed = new Set(targets.map((record) => record.header.id))
+      docs = docs.filter((doc) => allowed.has(doc.sessionId))
     }
 
     const matchStarted = Date.now()
@@ -607,12 +680,21 @@ class SearchIndex {
       return b.best - a.best || b.createdAt - a.createdAt
     })
 
+    let truncatedDocs = 0
+    for (const record of targets) {
+      const cached = this.surfaces.get(record.header.id)
+      if (cached?.truncated) truncatedDocs += 1
+    }
+
     return {
       query: q,
       scope: scope ?? 'all',
       types,
       exts,
       sort,
+      signature: sig || canonicalSignature({ q, scope, types, exts, sort }),
+      scopeMissing,
+      truncatedDocs,
       total: matched.length,
       scanned,
       limit,
@@ -658,6 +740,7 @@ class SearchIndex {
       // made every saved result look stale. Only structural changes count.
       if (!cached || !record.live) this.store.bumpRevision()
       this.corpusVersion += 1
+      this.dirtySessions.add(id)
       this.schedulePersist()
       return built
     } catch (error) {
@@ -716,22 +799,36 @@ class SearchIndex {
     return false
   }
 
-  /** Lazily map every doc id to its doc and owning record. */
-  docIndex() {
-    if (this.docIndexCache && this.docIndexCacheVersion === this.corpusVersion) return this.docIndexCache
-    const map = new Map()
+  /**
+   * The flat corpus and its id map. Rebuilt only when the index or the titles
+   * change, never per search: this is the difference between a 40 ms search and
+   * a 300 ms search on a large corpus.
+   */
+  corpus() {
+    if (this.corpusCache && this.corpusCacheVersion === this.corpusVersion && this.corpusCacheTitles === this.titleVersion) {
+      return this.corpusCache
+    }
+    const docs = []
+    const meta = new Map()
     for (const [sessionId, entry] of this.surfaces) {
       const record = this.recordById.get(sessionId)
       if (!record) continue
       const sessionTitle = this.titleOf(sessionId) ?? sessionId
       for (const doc of entry.docs) {
         const id = docKey(sessionId, doc)
-        map.set(id, { sessionId, record, sessionTitle, doc })
+        docs.push({ id, kind: doc.kind, subtype: doc.subtype, text: doc.text, ext: doc.ext || null, sessionId })
+        meta.set(id, { sessionId, record, sessionTitle, doc })
       }
     }
-    this.docIndexCache = map
-    this.docIndexCacheVersion = this.corpusVersion
-    return map
+    this.corpusCache = { docs, meta }
+    this.corpusCacheVersion = this.corpusVersion
+    this.corpusCacheTitles = this.titleVersion
+    return this.corpusCache
+  }
+
+  /** Map every doc id to its doc and owning record. */
+  docIndex() {
+    return this.corpus().meta
   }
 
   /**
@@ -778,10 +875,26 @@ class SearchIndex {
     const meta = saved.meta || {}
     const payload = {
       query: q,
-      scope: meta.scope ?? 'all',
-      types: meta.types ?? [],
-      exts: meta.exts ?? [],
+      scope: saved.request?.scope ?? 'all',
+      types: Array.isArray(saved.request?.types) ? saved.request.types : [],
+      exts: Array.isArray(saved.request?.exts) ? saved.request.exts : [],
       sort,
+      // The signature of the request that produced this page, not of the click.
+      signature: saved.signature || canonicalSignature({ q, scope: saved.request?.scope, types: saved.request?.types, exts: saved.request?.exts, sort }),
+      cached: true,
+      // What the original search cost, kept so a cached page never reports the
+      // time a re-search would have taken.
+      originalTookMs: Number.isFinite(Number(meta.tookMs)) ? Number(meta.tookMs) : null,
+      original: {
+        surfaceMs: Number(meta.surfaceMs) || 0,
+        matchMs: Number(meta.matchMs) || 0,
+        ensureMs: Number(meta.ensureMs) || 0,
+        listMs: Number(meta.listMs) || 0,
+        otherMs: Number(meta.otherMs) || 0,
+        mode: meta.mode || 'materialized',
+      },
+      scopeMissing: false,
+      truncatedDocs: Number(meta.truncatedDocs) || 0,
       total: meta.total ?? items.length,
       scanned: meta.scanned ?? 0,
       limit: meta.limit ?? items.length,
@@ -824,6 +937,10 @@ class SearchIndex {
   }
 
   dispose() {
+    if (this.persistTimer) clearTimeout(this.persistTimer)
+    if (this.dirtyTimer) clearTimeout(this.dirtyTimer)
+    this.persistTimer = null
+    this.dirtyTimer = null
     this.dropAllResolved()
     void this.pool?.dispose()
   }
@@ -862,6 +979,7 @@ function buildSurfaceDocs(snapshot, record) {
     const clean = text.replace(/\u0000/g, '')
     if (!clean.trim()) return
     const capped = clean.length > CHUNK_SIZE * MAX_CHUNKS ? clean.slice(0, CHUNK_SIZE * MAX_CHUNKS) : clean
+    if (capped.length < clean.length) docs.truncated = true
     let offset = 0
     let chunk = 0
     do {
@@ -1040,6 +1158,7 @@ function buildSurfaceDocs(snapshot, record) {
   return {
     docs,
     fallbackTitle,
+    truncated: docs.truncated === true,
     seq: snapshot.capturedThroughSeq == null ? undefined : Number(snapshot.capturedThroughSeq),
     cwd: headerCwd,
   }
@@ -1191,7 +1310,10 @@ class StateStore {
     this.dir = path.join(home, 'flash-anchor')
     this.legacyDir = path.join(home, 'deepsearch')
     this.stateFile = path.join(this.dir, 'state.json')
+    // The manifest names every indexed session; each session's docs live in
+    // their own file so a live update rewrites one session, not 16 MB.
     this.indexFile = path.join(this.dir, 'index.json.gz')
+    this.indexDir = path.join(this.dir, 'index')
     this.state = defaultState()
     this.loadPromise = null
     this.stateTimer = null
@@ -1320,10 +1442,22 @@ class StateStore {
       historyId: id,
       idVersion: 2,
       request,
+      // The Client's own signature for the request that produced this page.
+      signature: payload.signature || canonicalSignature(request),
       seqs,
       sessions: Array.isArray(payload.sessions) ? payload.sessions.map((session) => session.id) : [],
       ids: Array.isArray(payload.items) ? payload.items.map((item) => item.id) : [],
       meta: {
+        // The cost of the search that produced this page, so reopening a
+        // history entry can show it instead of a materialization time.
+        tookMs: Number(payload.tookMs) || 0,
+        surfaceMs: Number(payload.surfaceMs) || 0,
+        matchMs: Number(payload.matchMs) || 0,
+        ensureMs: Number(payload.ensureMs) || 0,
+        listMs: Number(payload.listMs) || 0,
+        otherMs: Number(payload.otherMs) || 0,
+        mode: payload.mode || null,
+        truncatedDocs: Number(payload.truncatedDocs) || 0,
         query: payload.query,
         scope: payload.scope,
         types: payload.types,
@@ -1379,6 +1513,10 @@ class StateStore {
     if (!same(saved.request.types, request.types)) return null
     if (!same(saved.request.exts, request.exts)) return null
     if (saved.request.sort !== request.sort) return null
+    // A saved page belongs to one scope. Returning the all-sessions page for a
+    // one-session search is how the session filter used to disappear.
+    if (String(saved.request.scope ?? 'all') !== String(request.scope ?? 'all')) return null
+    if (request.sig && saved.signature && request.sig !== saved.signature) return null
     return { id, ...saved }
   }
 
@@ -1437,26 +1575,72 @@ class StateStore {
     await this.writeChain
   }
 
+  sessionIndexFile(sessionId) {
+    const safe = encodeURIComponent(String(sessionId)).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180)
+    return path.join(this.indexDir, safe + '.json.gz')
+  }
+
   async loadIndex() {
+    let manifest
     try {
-      const data = JSON.parse(zlib.gunzipSync(await fs.readFile(this.indexFile)))
-      if (data?.version !== INDEX_VERSION || !data.sessions) return null
-      return data
+      manifest = JSON.parse(zlib.gunzipSync(await fs.readFile(this.indexFile)))
     } catch {
       return null
     }
+    // A unified 1.x/1.5.x index is still readable; it is rewritten as
+    // per-session files by the next persist.
+    if (manifest?.version === 2 && manifest.sessions) return { ...manifest, legacy: true }
+    if (manifest?.version !== INDEX_VERSION || !manifest.sessions) return null
+    const sessions = {}
+    await Promise.all(
+      Object.entries(manifest.sessions).map(async ([id, entry]) => {
+        try {
+          const parsed = JSON.parse(zlib.gunzipSync(await fs.readFile(this.sessionIndexFile(id))))
+          if (parsed?.docs) sessions[id] = { ...entry, ...parsed }
+        } catch {
+          /* a missing/corrupt shard is simply re-indexed */
+        }
+      }),
+    )
+    return { version: INDEX_VERSION, savedAt: manifest.savedAt, sessions }
   }
 
-  async saveIndex(surfaces) {
-    const data = {
-      version: INDEX_VERSION,
-      savedAt: Date.now(),
-      sessions: Object.fromEntries(surfaces),
+  /**
+   * Persist only the sessions that changed. The old writer serialized the whole
+   * corpus (≈16 MB) every few seconds, which is what made the GUI hitch while a
+   * session was streaming.
+   */
+  async saveIndex(surfaces, dirtyIds, removedIds) {
+    const ids = dirtyIds && dirtyIds.size > 0 ? [...dirtyIds] : [...surfaces.keys()]
+    const removed = removedIds ? [...removedIds] : []
+    const manifest = { version: INDEX_VERSION, savedAt: Date.now(), sessions: {} }
+    for (const [id, entry] of surfaces) {
+      manifest.sessions[id] = {
+        seq: entry.seq ?? null,
+        builtAt: entry.builtAt ?? null,
+        trunc: entry.truncated === true,
+        docs: entry.docs?.length ?? 0,
+      }
     }
-    const bytes = await gzip(Buffer.from(JSON.stringify(data)))
     this.writeChain = this.writeChain
       .catch(() => {})
-      .then(() => writeAtomic(this.indexFile, bytes))
+      .then(async () => {
+        await fs.mkdir(this.indexDir, { recursive: true })
+        // Write shards one at a time: never hold two gzip buffers of the whole
+        // corpus at once.
+        for (const id of ids) {
+          const entry = surfaces.get(id)
+          if (!entry) continue
+          const shard = { version: INDEX_VERSION, id, savedAt: Date.now(), docs: entry.docs, fallbackTitle: entry.fallbackTitle }
+          const bytes = await gzip(Buffer.from(JSON.stringify(shard)))
+          await writeAtomic(this.sessionIndexFile(id), bytes)
+        }
+        for (const id of removed) {
+          await fs.rm(this.sessionIndexFile(id), { force: true }).catch(() => {})
+        }
+        const manifestBytes = await gzip(Buffer.from(JSON.stringify(manifest)))
+        await writeAtomic(this.indexFile, manifestBytes)
+      })
     await this.writeChain
   }
 
@@ -1487,6 +1671,7 @@ class StateStore {
     await this.writeChain
     try {
       await fs.rm(this.indexFile, { force: true })
+      await fs.rm(this.indexDir, { recursive: true, force: true })
     } catch {
       /* already gone */
     }

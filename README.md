@@ -1,82 +1,179 @@
 # FlashAnchor / 闪电锚点
 
-A DSH Web GUI plugin that searches the entire stored corpus of every session:
-assistant reasoning, answer text, tool calls and results, output files, user
-prompts, and input files. Clicking a hit jumps to the **block** that contains it
-(paragraph, code fence, file card, or tool card), expands folded disclosures,
-and highlights only that block.
+[![Release](https://img.shields.io/badge/release-v1.6.0-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
+[![License](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-DSH%20Desktop%20%C2%B7%20DSH%20Web-6366f1)](https://github.com/BR-PC/dsh-flash-anchor)
 
-![icon](icon.png)
+> 在 **DSH（DeepSeek Harness）** 里，把所有会话正文、思维链、工具调用与结果、输入/输出文件放到一个搜索框里检索，
+> 点开结果直接落到产生命中的那个**段落/代码块/文件卡片/工具卡片**，而不是会话顶部。
 
-## Features
+![FlashAnchor](icon.png)
 
-- **Block anchors**: every result carries `{turn, step, messageId, toolCallId,
-  blockIndex, seatIndex, blockKind, chunk}`; the client computes the chat node
-  key instead of guessing from text.
-- **Sharded Worker pool**: the thread slider (1-8) selects the number of
-  `worker_threads`; each worker owns a slice of the corpus. A worker crash or
-  OOM (256 MB heap cap) degrades to the single-threaded scan.
-- **Materialized views**: saved searches persist only result IDs, per-session
-  sequence snapshots, and page metadata (no body text). Pages are rebuilt from
-  the document index; history and snapshots share one id, so deleting a row
-  drops the snapshot and its in-memory page. LRU cap: 50.
-- **Near-memory search**: an identical query signature returns from memory for
-  60 s and aborts an in-flight request.
-- **Session scope**: search all sessions or one session; the selection can be
-  cleared. Query already matches file names, so there is no separate suffix
-  filter.
-- **Appearance**: adjustable frosted-glass blur/density, persisted locally.
+## 发行版本
 
-## Install
+首个公开版本 **v1.5.0** 于 2026-11-06 发布，包含块级锚点、分片 Worker、物化视图与 Scroll Router：
 
-From this directory:
+[![v1.5.0](icon.png)](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.5.0)
+
+| 版本 | 说明 |
+| --- | --- |
+| [v1.5.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.5.0) | 首个公开发布：块级锚点、Worker 池、物化视图、新图标 |
+| v1.5.1 / v1.5.2 | 过滤条件校验、缓存签名、骨架屏、锚定严格失败、冷启动等待视图 |
+| **v1.6.0** | 会话筛选与会话缓存隔离、缓存耗时如实展示、长文不再截断、按会话分片落盘与语料缓存、Worker 自动恢复 |
+
+## 功能
+
+### 搜索
+
+- **六个目标类型**：思维链（reasoning）、正文（modelText）、工具调用/结果（tools）、输出文件（outputFiles）、输入正文（userText）、输入文件（inputFiles）。
+- **范围**：所有会话，或指定一个会话；会话不存在时明确提示，而不是假装“没有匹配”。
+- **结果页筛选**：按类型、按会话、按时间/相关度；查询本身即匹配文件名，无需后缀筛选。
+- **结果页是快照**：同一请求再次打开直接读物化视图（只存结果 ID + 每会话 seq），
+  筛选条件变化时**绝不**把另一套筛选的结果显示在当前 chips 之下——页面用请求签名做门控。
+
+### 定位（Scroll Router）
+
+- 每条结果携带完整块地址：`{turn, step, messageId, toolCallId, blockIndex, seatIndex, blockKind, fileIndex, chunk}`。
+- 先算 Chat 节点 key（`14:assistant-step<turn>:<step>`、`9:tool-call<id>`、`13:input-message<id>`），
+  再在该节点内按块文本匹配，展开折叠的思考/工具卡片，最后把**块**滚到视口中心并只高亮该块。
+- 虚拟列表未挂载时：先等 Chat 视图就绪 → 点轨迹栏对应轮次 → `loadThrough` → 直接滚动转录区，四重兜底。
+- **宁可报“未定位到”也不跳到同轮的另一条消息**：有自身地址的命中不会用同轮邻居顶替。
+
+### 性能
+
+- **语料缓存**：索引未变化时搜索不再重建 1 万+ 文档数组，命中中位数 ~6 ms（24 会话 / 12 346 文档实测）。
+- **按会话分片落盘**：`$DSH_HOME/flash-anchor/index/` 下每会话一个 gzip 分片，只重写变化的会话——
+  实测单会话写入 22 ms，而整库写入 698 ms；旧版每 6 秒整库重写是 GUI 卡顿的主因之一。
+- **后台索引让路**：搜索进行中不重建 surface；流式会话最多每 20 秒重建一次；只有新会话出现时才重列会话表。
+- **Worker 池**：1–8 线程按语料分片；OOM/超时/崩溃自动降级为内联扫描，并带指数退避**自动恢复**（不再一降到底）。
+- **资源回收**：插件卸载时清理定时器、Worker 与内存页；索引写入串行化，原子替换。
+
+### 隐私
+
+- 全部索引、查询与跳转都在**本机 Host** 完成，插件**没有**任何外部网络请求、没有 API Key。
+- 落盘位置：`$DSH_HOME/flash-anchor/`
+  - `state.json`：偏好、历史（只含查询词与筛选条件）。
+  - `index/` + `index.json.gz`：**文档正文的本地索引**（gzip）。为了让历史内容可搜，
+    这里确实保存了会话文本的可检索副本；它只在本机，删掉会按需重建。
+  - `errors.log`：定位诊断（点击时的目标、结果），超过 1 MB 轮转。
+- 关闭“自动索引”或点“清空”即可随时移除本地索引；插件不修改任何会话数据（Host 侧只读）。
+
+## 安装
+
+### 方式一：从 Release 安装（推荐）
+
+1. 打开 [Releases](https://github.com/BR-PC/dsh-flash-anchor/releases)，下载最新的 `flash-anchor-x.y.z.tgz`。
+2. 在 DSH 中安装该 tgz：
+   - **桌面端**：设置 → 插件 → 安装本地插件 / 插件管理器，选择下载的 tgz；或
+   - **命令行/Agent**：调用插件管理器安装 `install_bundle`，目标填 `file:<tgz 绝对路径>`。
+3. 确认 `flash-anchor` 出现在当前 profile 的 bundle 列表并处于启用状态。
+4. **重启 DSH Desktop**（Host 半在启动时加载；Client 半会随页面热替换，必要时 Ctrl+R）。
+
+安装后左侧栏底部出现 **闪电锚点** 入口，点击即可搜索。
+
+### 方式二：从源码安装
 
 ```powershell
-node --check index.js
-node test-core.mjs
+git clone https://github.com/BR-PC/dsh-flash-anchor.git
+cd dsh-flash-anchor
+node --check index.js; node --check client.js
+node test-core.mjs; node test-state.mjs; node test-locate.mjs
 $env:npm_config_cache = "$PWD/.npm-cache"
-npm pack
-# install the resulting flash-anchor-*.tgz into your DSH profile's node_modules
-# and add flash-anchor to the profile bundle list, then restart DSH Desktop
+npm pack                      # 生成 flash-anchor-<version>.tgz
+# 然后把该 tgz 按“方式一”第 2 步装进 DSH
 ```
 
-The Host half needs a DSH restart (the client bundle reloads with the page).
+### 方式三：手工放入 profile（离线）
 
-## Architecture
+把 tgz 解压到 `<DSH_HOME>/profiles/<profile>/node_modules/flash-anchor`，
+并在该 profile 的 `package.json` 中加入依赖与 bundle：
 
-| File | Role |
+```json
+{
+  "dependencies": { "flash-anchor": "file:D:/path/flash-anchor-1.6.0.tgz" },
+  "dsh": { "profile": { "bundles": ["...", "flash-anchor"] } }
+}
+```
+
+重启 DSH 生效。
+
+## 使用
+
+| 操作 | 说明 |
 | --- | --- |
-| `index.js` | Host plugin: session surface index, search, materialized views, state |
-| `search-core.js` | Shared matching/scoring/snippet + doc address |
-| `search-pool.js` | Worker pool, sharding, OOM/timeout degradation |
-| `worker.js` | One corpus shard, scans on request |
-| `client.js` | Dialog, settings, results deck, scroll router |
-| `locale/*.json` | UI dictionaries |
+| 打开 | 左侧栏底部「闪电锚点」，或命令面板搜索 FlashAnchor |
+| 搜索 | 输入关键词后 Enter；结果按会话分组，显示命中轮次与时间 |
+| 筛选 | 左侧设置：范围（全部/指定会话）、目标类型、排序；结果页顶部 chips 始终反映**当前页面**的筛选 |
+| 历史 | 历史条目保存的是**当时那次搜索**的结果与耗时；索引变化后显示“缓存可能已过期”，可一键更新 |
+| 定位 | 点击结果 → 打开会话 → 展开折叠 → 滚动并高亮命中块；失败会明确提示，不会跳到别处 |
 
-All indexing stays on the local Host. The plugin never sends queries or session
-content to a network service, contains no API keys, and writes its index under
-`$DSH_HOME/flash-anchor/`.
+结果页 chips 的含义：`缓存` = 来自物化视图，`原搜索 Nms` = 当初那次搜索的耗时，
+`建面/匹配` = 当初的分段耗时；实时搜索则显示本次耗时。
 
-## Tests
+## 架构
+
+| 文件 | 作用 |
+| --- | --- |
+| `index.js` | Host：surface 索引、搜索、Worker 池调度、物化视图、状态与落盘 |
+| `search-core.js` | Host/Worker 共用：匹配、打分、片段、文档地址（docKey） |
+| `search-pool.js` | 分片 Worker 池：扩容/缩容、超时、OOM 降级与退避恢复 |
+| `worker.js` | 单个分片语料，按请求扫描 |
+| `client.js` | 弹窗、设置、结果页、Scroll Router、i18n 文案 |
+| `locale/*.json` | 客户端字典 |
+
+搜索链路：Client 发 `q/scope/types/ext/sort/sig` → Host 校验并回显 `signature` →
+命中物化视图则直接用 ID 快照重建页面 → 否则读（或复用）surface → 语料缓存 → Worker/内联扫描 → 只回传 ID+片段+锚点。
+
+## 测试
 
 ```bash
-node test-core.mjs
-node test-state.mjs
-node test-prefs.mjs
-node test-order.mjs
-node test-worker.mjs
+node test-core.mjs        # 契约：类型过滤不泄漏、签名回显、scope 缺失
+node test-state.mjs       # 状态持久化、缓存作用域、耗时保留
+node test-prefs.mjs       # 偏好
+node test-order.mjs       # hook 依赖顺序（TDZ）
+node test-worker.mjs      # 分片一致性、OOM 降级
+node test-locate.mjs      # 21 个定位场景（含冷启动、拒绝同轮替换、seq-exact）
 node --expose-gc test-memory.mjs
-node test-locate.mjs
-node test-anchor.mjs      # skips when no session store is present
 node test-stress.mjs
+# 需要本机会话库（不随包发布）：
+node test-real-filters.mjs   # 真实语料：类型/范围/缓存计时/长文
+node test-anchor.mjs
 ```
 
-## Development
+## 已知限制
 
-Designed and implemented by **DeepSeek-V4.1-Flash-1017**, an AI coding agent
-running in DeepSeek Harness, for **BR-PC**. Product direction, review, and
-acceptance testing were done by BR-PC. The repository contains only plugin
-source and tests; no session data or credentials.
-## License
+1. 首次建面（清空索引后）需读全部会话日志，本机 24 会话约 1.4 s；之后走持久索引。
+2. 冷启动定位需等会话视图挂载，通常 2–8 s（期间显示“正在定位”）。
+3. 搜索是子串匹配（大小写不敏感），不做分词/同义词；中文短词命中率取决于原文。
+4. 单个文档最多索引 256 段（≈1 MB），超出部分不可搜且有截断提示。
+5. 结果默认上限 400 条（可预加载到 2000）；超出会提示“已截断”。
+6. 历史 12 条 / 快照 LRU 50；如需更多需调整 `MAX_HISTORY`。
 
-MIT. See `LICENSE`.
+## 致谢与作者
+
+- **产品设计、测试与反馈**：**BR-PC**（[@BR-PC](https://github.com/BR-PC)）
+- **开发**：**DeepSeek-V4.1-Flash-1017**（AI agent）
+
+FlashAnchor 由 BR-PC 提出需求、制定验收标准并逐版本实测反馈；代码、测试与文档由 DeepSeek-V4.1-Flash-1017 实现。
+v1.6.0 的会话筛选、缓存计时、长文截断与索引落盘改造，来自 BR-PC 的实测反馈与一份独立源码审查报告。
+
+## 许可证
+
+[MIT](LICENSE)
+
+---
+
+## English
+
+**FlashAnchor** is a plugin for DSH (DeepSeek Harness) that full-text searches every stored session —
+reasoning, answers, tool calls/results, output and input files — and jumps to the exact **block**
+that produced a hit, expanding folded disclosures first and highlighting only that block.
+
+- **Install**: download `flash-anchor-*.tgz` from Releases, install it through the DSH plugin manager
+  (or add it to your profile's dependencies + bundles), then restart DSH Desktop.
+- **Privacy**: everything runs in the local Host; no network calls, no API keys. The local document
+  index (gzip shards under `$DSH_HOME/flash-anchor/index/`) does contain searchable copies of session
+  text so old sessions stay searchable; delete it any time.
+- **Performance**: corpus cache (≈6 ms warm searches), per-session index shards (≈22 ms per change),
+  background indexing that yields to searches, and a worker pool that recovers after degradation.
+- **Credits**: designed, tested and driven by **BR-PC**; implemented by **DeepSeek-V4.1-Flash-1017**.

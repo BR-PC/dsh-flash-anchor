@@ -150,6 +150,19 @@ const pdf = await index.search(parseSearchRequest(new URLSearchParams({ ext: '.p
 assert.ok(pdf.items.length >= 1)
 assert.ok(pdf.items.every((item) => /\.pdf$/i.test(item.snippet)))
 
+// The Client's signature is echoed untouched, so a page can never be rendered
+// under chips that describe another filter set.
+const signed = parseSearchRequest(new URLSearchParams({ q: 'zeta-token', types: 'modelText', scope: 's-alpha', sig: 'SIG-1' }))
+assert.equal(signed.sig, 'SIG-1')
+const signedPayload = await index.search(signed)
+assert.equal(signedPayload.signature, 'SIG-1')
+assert.equal(signedPayload.scopeMissing, false)
+const unsigned = parseSearchRequest(new URLSearchParams({ q: 'zeta-token', types: 'modelText' }))
+assert.ok(unsigned.sig.length > 0, 'a request without a Client signature still gets a canonical one')
+const missingScope = await index.search(parseSearchRequest(new URLSearchParams({ q: 'zeta-token', scope: 'no-such-session' })))
+assert.equal(missingScope.scopeMissing, true, 'an unknown session must read as missing, not as empty')
+assert.equal(missingScope.items.length, 0)
+
 const scoped = await index.search(parseSearchRequest(new URLSearchParams({ q: 'keyword', scope: 's-alpha' })))
 assert.equal(scoped.total, 0)
 const beta = await index.search(parseSearchRequest(new URLSearchParams({ q: 'keyword', scope: 's-beta' })))
