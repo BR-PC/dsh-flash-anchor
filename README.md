@@ -1,6 +1,6 @@
 # FlashAnchor / 闪电锚点
 
-[![Release](https://img.shields.io/badge/release-v1.6.0-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
+[![Release](https://img.shields.io/badge/release-v1.6.1-74a9a8c)](https://github.com/BR-PC/dsh-flash-anchor/releases)
 [![License](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-DSH%20Desktop%20%C2%B7%20DSH%20Web-6366f1)](https://github.com/BR-PC/dsh-flash-anchor)
 [![CI](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml/badge.svg)](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml)
