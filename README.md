@@ -14,8 +14,6 @@
 
 首个公开版本 **v1.5.0** 于 2026-11-06 发布，包含块级锚点、分片 Worker、物化视图与 Scroll Router：
 
-[![v1.5.0](icon.png)](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.5.0)
-
 | 版本 | 说明 |
 | --- | --- |
 | [v1.5.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.5.0) | 首个公开发布：块级锚点、Worker 池、物化视图、新图标 |
