@@ -1,6 +1,6 @@
 # FlashAnchor / 闪电锚点
 
-[![Release](https://img.shields.io/badge/release-v1.6.1-74a9a8c)](https://github.com/BR-PC/dsh-flash-anchor/releases)
+[![Release](https://img.shields.io/badge/release-v1.7.0-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
 [![License](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-DSH%20Desktop%20%C2%B7%20DSH%20Web-6366f1)](https://github.com/BR-PC/dsh-flash-anchor)
 [![CI](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml/badge.svg)](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml)
@@ -14,7 +14,7 @@
 
 首个公开版本 **v1.5.0** 于 2026-11-06 发布，包含块级锚点、分片 Worker、物化视图与 Scroll Router：
 
-[v1.5.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.5.0)
+[![v1.5.0](icon.png)](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.5.0)
 
 | 版本 | 说明 |
 | --- | --- |
@@ -22,6 +22,7 @@
 | v1.5.1 / v1.5.2 | 过滤条件校验、缓存签名、骨架屏、锚定严格失败、冷启动等待视图 |
 | **v1.6.0** | 会话筛选与会话缓存隔离、缓存耗时如实展示、长文不再截断、按会话分片落盘与语料缓存、Worker 自动恢复 |
 | **[v1.6.1](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.6.1)** | 修复了若干已知问题，详见[v1.6.0...v1.6.1](https://github.com/BR-PC/dsh-flash-anchor/compare/v1.6.0...v1.6.1) |
+| **[v1.7.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.7.0)** | **卡顿根治**（去掉全屏模糊与无限动画、启动不再全量索引、面板关闭即停索引、结果分页渲染）、历史按筛选集独立成条且耗时如实、计算后置复用缓存、文件名可搜、边索引边出结果、仅筛选也能搜、长文独立索引与长文搜索、工作区筛选，详见[v1.6.1...v1.7.0](https://github.com/BR-PC/dsh-flash-anchor/compare/v1.6.1...v1.7.0) |
 
 ## 功能
 
@@ -29,9 +30,17 @@
 
 - **六个目标类型**：思维链（reasoning）、正文（modelText）、工具调用/结果（tools）、输出文件（outputFiles）、输入正文（userText）、输入文件（inputFiles）。
 - **范围**：所有会话，或指定一个会话；会话不存在时明确提示，而不是假装“没有匹配”。
+- **工作区**：按会话的启动目录（cwd）筛选，先收窄会话再扫文档，别的目录根本不参与扫描。
+- **仅筛选也能搜**：不输关键词，只选类型/工作区/会话/长文，按 Enter 就是一次完整搜索。
+- **文件名可搜**：文件名、扩展名、路径都是索引字段，输入 `报告.md` 直接命中文件卡片；
+  工具调用参数、`Presented` 行、Markdown 链接里的产物都会进入文件索引。
 - **结果页筛选**：按类型、按会话、按时间/相关度；查询本身即匹配文件名，无需后缀筛选。
 - **结果页是快照**：同一请求再次打开直接读物化视图（只存结果 ID + 每会话 seq），
   筛选条件变化时**绝不**把另一套筛选的结果显示在当前 chips 之下——页面用请求签名做门控。
+- **计算后置**：同一个词换筛选条件时，先在已缓存/已物化的结果里筛，命中就不扫全表；
+  只有放宽条件（缓存装不下）才真正重扫。
+- **边索引边出结果**：冷索引时先返回已经索引好的会话命中，后台一个会话一个会话地补，
+  结果区显示“后台索引 x/y 会话”，补齐后自动补上新增命中——不用等全库读完。
 
 ### 定位（Scroll Router）
 
@@ -43,8 +52,18 @@
 
 ### 性能
 
+- **卡顿根治（1.7.0 重点）**：三个真正的元凶都不是搜索算法——
+  ① 弹窗覆盖层用了 `backdrop-filter` 全屏模糊，外加两个 620px、`filter:blur(80px)` 的无限动画光斑，
+  合成器每帧都要重画一整屏离屏缓冲；② 每次启动都在后台把全部会话日志重读一遍建索引；
+  ③ 结果页一次性渲染 400 个按钮。
+  现在：模糊默认 0（滑杆要开才生效）、动画光斑删除、启动不建索引、**面板关闭立即停索引**、
+  结果按 60 条一页往下滚加载。
+- **懒索引**：打开面板只发一个 `boot` 请求（不等索引）；只有真正被搜到的会话才在请求内读取，
+  其余由后台按“最新优先”逐个补，搜索进行时后台让路。
 - **语料缓存**：索引未变化时搜索不再重建 1 万+ 文档数组；命中较少的查询 p50 ≈ 6–8 ms，
-  单字符这类宽匹配（上万命中）约 200 ms（24 会话 / 12 900 文档实测）。
+  单字符这类宽匹配（上万命中）约 200 ms（26 会话 / 12 500 文档实测）。
+- **索引分类**：文本与文件分成两个候选集，只筛文件时扫描量从 12 500 条降到 291 条；
+  长文段落单独存放，普通搜索不碰。
 - **按会话分片落盘**：`$DSH_HOME/flash-anchor/index/` 下每会话一个 gzip 分片，只重写变化的会话——
   实测单会话写入 22 ms，而整库写入 698 ms；旧版每 6 秒整库重写是 GUI 卡顿的主因之一。
 - **后台索引让路**：搜索进行中不重建 surface；流式会话最多每 20 秒重建一次；只有新会话出现时才重列会话表。
@@ -58,6 +77,7 @@
   - `state.json`：偏好、历史（只含查询词与筛选条件）。
   - `index/` + `index.json.gz`：**文档正文的本地索引**（gzip）。为了让历史内容可搜，
     这里确实保存了会话文本的可检索副本；它只在本机，删掉会按需重建。
+  - `long/`：长文段落（每个超长块的尾部）单独存放，可在设置里独立重建/清空，不影响普通索引。
   - `errors.log`：定位诊断（点击时的目标、结果），超过 1 MB 轮转。
 - 关闭“自动索引”或点“清空”即可随时移除本地索引；插件不修改任何会话数据（Host 侧只读）。
 
@@ -105,13 +125,15 @@ npm pack                      # 生成 flash-anchor-<version>.tgz
 | 操作 | 说明 |
 | --- | --- |
 | 打开 | 左侧栏底部「闪电锚点」 |
-| 搜索 | 输入关键词后 Enter；结果按会话分组，显示命中轮次与时间 |
-| 筛选 | 左侧设置：范围（全部/指定会话）、目标类型、排序；结果页顶部 chips 始终反映**当前页面**的筛选 |
-| 历史 | 历史条目保存的是**当时那次搜索**的结果与耗时；索引变化后显示“缓存可能已过期”，可一键更新 |
+| 搜索 | 输入关键词后 Enter；结果按会话分组，显示命中轮次与时间；也可以只选筛选条件直接 Enter |
+| 筛选 | 左侧设置：范围（全部/指定会话）、工作区、目标类型（含长文）、排序；结果页顶部 chips 始终反映**当前页面**的筛选 |
+| 长文 | 结果末尾与“无结果”处都有长文搜索入口；设置里可查看长文段数并独立重建/清空 |
+| 历史 | 每条历史保存**那次搜索自己的筛选条件**；打开它只显示它自己的结果，返回首页会还原你原来的筛选 |
 | 定位 | 点击结果 → 打开会话 → 展开折叠 → 滚动并高亮命中块；失败会明确提示，不会跳到别处 |
 
-结果页 chips 的含义：`缓存` = 来自物化视图，`原搜索 Nms` = 当初那次搜索的耗时，
-`建面/匹配` = 当初的分段耗时；实时搜索则显示本次耗时。
+结果页 chips 的含义：`恢复 Nms` = **这次打开**用掉的时间（缓存页只算重建快照的时间），
+`原搜索 Nms` = 当初那次搜索的耗时，`筛选命中缓存` = 换筛选后从已有结果里直接筛出来的，
+`建面/匹配` = 当初的分段耗时；实时搜索显示 `耗时 Nms`。
 
 ## 架构
 
@@ -122,9 +144,8 @@ npm pack                      # 生成 flash-anchor-<version>.tgz
 | `search-pool.js` | 分片 Worker 池：扩容/缩容、超时、OOM 降级与退避恢复 |
 | `worker.js` | 单个分片语料，按请求扫描 |
 | `client.js` | 弹窗、设置、结果页、Scroll Router、i18n 文案 |
-| `locale/*.json` | 客户端字典 |
 
-搜索链路：Client 发 `q/scope/types/ext/sort/sig` → Host 校验并回显 `signature` →
+搜索链路：Client 发 `q/scope/workspace/types/ext/sort/long/sig` → Host 校验并回显 `signature` →
 命中物化视图则直接用 ID 快照重建页面 → 否则读（或复用）surface → 语料缓存 → Worker/内联扫描 → 只回传 ID+片段+锚点。
 
 ## 测试
@@ -135,7 +156,9 @@ node test-state.mjs       # 状态持久化、缓存作用域、耗时保留
 node test-prefs.mjs       # 偏好
 node test-order.mjs       # hook 依赖顺序（TDZ）
 node test-worker.mjs      # 分片一致性、OOM 降级
-node test-locate.mjs      # 21 个定位场景（含冷启动、拒绝同轮替换、seq-exact）
+node test-locate.mjs      # 23 个定位场景（含冷启动、div 气泡、seq-exact）
+node test-events.mjs      # session/event 载荷契约（旧代码必挂）
+node test-v17.mjs         # 1.7.0 契约：懒索引、仅筛选搜索、工作区、长文、文件名、计算后置
 node --expose-gc test-memory.mjs
 node test-stress.mjs
 # 需要本机会话库（不随包发布）：
@@ -144,25 +167,29 @@ node test-anchor.mjs
 ```
 
 ## 实机截图
+
 <img width="1249" height="895" alt="展示0" src="https://github.com/user-attachments/assets/a38fce73-d249-412e-855e-474479862fa0" />
 
 <img width="1237" height="894" alt="展示1" src="https://github.com/user-attachments/assets/c12b0a43-4b23-4b14-9bb2-e9b0e97ed422" />
 
 <img width="1130" height="759" alt="展示2" src="https://github.com/user-attachments/assets/24bd2087-2bc0-43f7-a380-25da58ef7c89" />
 
-
-
-
 ## 已知限制
 
-1. 首次建面（清空索引后）需读全部会话日志，本机 24 会话约 1.4 s；之后走持久索引。
+1. 首次建面（清空索引后）需读全部会话日志，本机 26 会话约 1.4 s；这发生在**打开面板之后**，
+   不再发生在 DSH 启动时，而且边建边出结果。
 2. 冷启动定位需等会话视图挂载，通常 2–8 s（期间显示“正在定位”）。
 3. 搜索是子串匹配（大小写不敏感），不做分词/同义词；中文短词命中率取决于原文。
-4. 单个文档最多索引 256 段（≈1 MB），超出部分不可搜且有截断提示。
-5. 结果默认上限 400 条（可预加载到 2000）；超出会提示“已截断”。
-6. 历史 12 条 / 快照 LRU 50；如需更多需调整 `MAX_HISTORY`。
+4. 普通索引只收每个块的前 16 000 字符（4 段），更长的尾部进入**长文索引**，要用“长文搜索”才查得到；
+   长文搜索会明显更慢（要读更大的文本），界面会在结果末尾与无结果时给出入口和耗时提示。
+5. 单个文档最多索引 256 段（≈1 MB），超出部分仍不可搜并有截断提示。
+6. 结果默认上限 400 条，一次渲染 60 条、滚动加载；超出会提示“已截断”。
+7. 历史按“查询词 + 完整筛选条件”各成一条（12 条 / 快照 LRU 50）；同一句换筛选会出现多条，
+   这正是“打开哪条就还原哪条的筛选”的前提。
 7. **定位依赖 Chat DOM 契约**（`data-chat-turn`、`data-chat-node-key`、`data-chat-group-part`、`data-tool` 等）：DSH 改版后若这些属性变化，定位会降级为“只到该轮”。每次跳转的诊断写在 `errors.log` 的 `[client:jump]` 行，可据此区分选择器失配与内容未挂载。
-8. 真实的短查询成本高于“中位数”：单字符宽匹配约 200 ms，属单线程匹配的物理成本。
+9. 真实的短查询成本高于“中位数”：单字符宽匹配约 200 ms，属单线程匹配的物理成本；
+   同一查询换筛选走缓存，不再重复付这笔成本。
+10. 背景模糊滑杆 > 0 时会明显吃 GPU（这是浏览器的物理成本，不是插件逻辑），默认 0。
 
 ## 致谢与作者
 
@@ -171,6 +198,7 @@ node test-anchor.mjs
 
 FlashAnchor 由 BR-PC 提出需求、制定验收标准并逐版本实测反馈；代码、测试与文档由 DeepSeek-V4.1-Flash-1017 实现。
 v1.6.0 的会话筛选、缓存计时、长文截断与索引落盘改造，来自 BR-PC 的实测反馈与一份独立源码审查报告。
+v1.7.0 的卡顿根治、计算后置、长文索引、工作区筛选与“边索引边出结果”，同样来自 BR-PC 的实测清单。
 
 ## 许可证
 

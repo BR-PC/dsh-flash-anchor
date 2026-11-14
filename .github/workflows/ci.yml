@@ -23,10 +23,12 @@ jobs:
         run: |
           node test-core.mjs
           node test-state.mjs
+          node test-events.mjs
           node test-prefs.mjs
           node test-order.mjs
           node test-worker.mjs
           node test-locate.mjs
           node test-i18n.mjs
+          node test-v17.mjs
           node --expose-gc test-memory.mjs
           node test-stress.mjs

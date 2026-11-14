@@ -61,12 +61,12 @@ export function scanDocs(docs, request) {
     if (fileOnly && (!doc.ext || !exts.has(doc.ext))) continue
     // One lowercase pass, one indexOf: the match test and the match position
     // are the same scan, and a short query walks every document twice otherwise.
+    // No query means "every document that passes the filters": a filter-only
+    // search is a search, and the Client sends it with an empty box.
     let matchIndex = 0
     if (qLower) {
       matchIndex = doc.text.toLowerCase().indexOf(qLower)
       if (matchIndex === -1) continue
-    } else if (!fileOnly) {
-      continue
     }
     out.push({ id: doc.id, score: scoreDoc(doc, matchIndex, qLower.length, qLower), matchIndex })
   }

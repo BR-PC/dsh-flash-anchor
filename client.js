@@ -171,6 +171,34 @@ window.__ModuleLoader__.load({
       "results.stale": "缓存结果可能已过期（索引已变化）",
       "results.update": "更新结果",
       "results.updated": "结果已更新 · {count} 条",
+      "ws": "工作区",
+      "ws.all": "全部工作区",
+      "ws.hint": "按会话的启动目录筛选",
+      "ws.sessions": "个会话",
+      "long": "长文",
+      "long.included": "含长文",
+      "long.excluded": "不含长文",
+      "long.title": "长文索引",
+      "long.ready": "{docs} 段 · {sessions} 个会话",
+      "long.empty": "暂无长文",
+      "long.auto": "自动索引长文",
+      "long.rebuild": "重建长文",
+      "long.clear": "清空长文",
+      "long.clearConfirm": "清空长文索引？普通索引不受影响。",
+      "long.cta": "在长文索引里再搜一次",
+      "long.ctaHint": "长文内容不在普通索引里，长文搜索要扫更大的文本，可能需要几秒。",
+      "long.emptyHint": "长文段落被普通索引截断了，长文搜索能找到它们。",
+      "long.running": "正在搜索长文索引…",
+      "deck.restored": "恢复 {ms}ms",
+      "deck.took": "耗时 {ms}ms",
+      "deck.narrowed": "筛选命中缓存",
+      "deck.originalOnly": "原搜索 {ms}ms",
+      "deck.pending": "后台索引 {done}/{total} 会话",
+      "deck.longOn": "含长文",
+      "deck.more": "显示更多（还有 {count} 条）",
+      "deck.snapshot": "历史快照",
+      "need.filters": "请输入关键词，或至少选择一个筛选条件",
+      "history.filters": "筛选",
       "sort.order": "时间顺序",
       "sort.newest": "新→旧",
       "sort.oldest": "旧→新"
@@ -314,6 +342,34 @@ window.__ModuleLoader__.load({
       "results.stale": "Cached result may be stale because the index changed",
       "results.update": "Update results",
       "results.updated": "Results updated · {count}",
+      "ws": "Workspace",
+      "ws.all": "All workspaces",
+      "ws.hint": "Filter sessions by their working directory",
+      "ws.sessions": "sessions",
+      "long": "Long text",
+      "long.included": "With long text",
+      "long.excluded": "Without long text",
+      "long.title": "Long-text index",
+      "long.ready": "{docs} chunks · {sessions} sessions",
+      "long.empty": "No long text yet",
+      "long.auto": "Index long text automatically",
+      "long.rebuild": "Rebuild long text",
+      "long.clear": "Clear long text",
+      "long.clearConfirm": "Clear the long-text index? The ordinary index is kept.",
+      "long.cta": "Search the long-text index",
+      "long.ctaHint": "Long text is not in the ordinary index. This search reads more text and can take a few seconds.",
+      "long.emptyHint": "Long passages are truncated out of the ordinary index; the long search can still find them.",
+      "long.running": "Searching the long-text index…",
+      "deck.restored": "Restored in {ms}ms",
+      "deck.took": "Took {ms}ms",
+      "deck.narrowed": "Filters served from cache",
+      "deck.originalOnly": "Original search {ms}ms",
+      "deck.pending": "Indexing {done}/{total} sessions in the background",
+      "deck.longOn": "Including long text",
+      "deck.more": "Show more ({count} left)",
+      "deck.snapshot": "History snapshot",
+      "need.filters": "Type a keyword, or pick at least one filter",
+      "history.filters": "Filters",
       "sort.order": "Time order",
       "sort.newest": "New → old",
       "sort.oldest": "Old → new"
@@ -322,11 +378,15 @@ window.__ModuleLoader__.load({
     const CSS = String.raw`
 .ds-root{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:22px;pointer-events:auto;font-family:inherit;color:var(--dsw-alias-label-primary,#e8ecf5)}
 .ds-root *{box-sizing:border-box}
-.ds-backdrop{position:absolute;inset:0;background:radial-gradient(1100px 720px at 18% 8%,rgba(14,165,233,.18),transparent 62%),radial-gradient(900px 640px at 86% 92%,rgba(37,99,235,.14),transparent 60%),rgba(6,9,16,.62);backdrop-filter:blur(calc(var(--ds-blur,16px) * .35)) saturate(1.12);animation:ds-fade .24s ease}
-.ds-modal{position:relative;display:flex;flex-direction:column;width:min(1200px,94vw);height:min(860px,92vh);border-radius:26px;overflow:hidden;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l2,#8ea0c0) 48%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#121620) var(--ds-alpha,88%),transparent),color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) var(--ds-alpha-soft,80%),transparent));backdrop-filter:blur(var(--ds-blur,28px)) saturate(1.45);box-shadow:0 44px 120px rgba(0,0,0,.55),inset 0 1px 0 color-mix(in srgb,#fff 22%,transparent);animation:ds-pop .3s cubic-bezier(.2,.85,.25,1)}
-.ds-modal::before,.ds-modal::after{content:"";position:absolute;z-index:0;width:620px;height:620px;border-radius:50%;pointer-events:none;filter:blur(80px);opacity:.5}
-.ds-modal::before{left:-210px;top:-280px;background:radial-gradient(circle,color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 62%,transparent),transparent 68%);animation:ds-float 19s ease-in-out infinite}
-.ds-modal::after{right:-240px;bottom:-320px;background:radial-gradient(circle,rgba(6,182,212,.42),rgba(37,99,235,.30) 45%,transparent 70%);animation:ds-float 23s ease-in-out infinite reverse}
+/* No backdrop-filter anywhere: a full-viewport blur forces the compositor to
+   re-render an offscreen buffer on every frame and is the single biggest
+   cause of dropped frames while this dialog is open. */
+.ds-backdrop{position:absolute;inset:0;background:radial-gradient(1100px 720px at 18% 8%,rgba(14,165,233,.16),transparent 62%),radial-gradient(900px 640px at 86% 92%,rgba(37,99,235,.12),transparent 60%),rgba(6,9,16,.72);animation:ds-fade .18s ease}
+.ds-modal{position:relative;display:flex;flex-direction:column;width:min(1200px,94vw);height:min(860px,92vh);border-radius:26px;overflow:hidden;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l2,#8ea0c0) 48%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#121620) var(--ds-alpha,96%),transparent),color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) var(--ds-alpha-soft,92%),transparent));box-shadow:0 44px 120px rgba(0,0,0,.55),inset 0 1px 0 color-mix(in srgb,#fff 18%,transparent);animation:ds-pop .22s cubic-bezier(.2,.85,.25,1)}
+/* Blur is opt-in: the slider starts at 0 and a non-zero value is the only way
+   the compositor pays for it. */
+.ds-root.is-blurred .ds-modal{backdrop-filter:blur(var(--ds-blur,16px)) saturate(1.2)}
+
 .ds-top{position:relative;z-index:3;display:flex;align-items:center;gap:18px;padding:14px 18px;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 32%,transparent);background:linear-gradient(180deg,color-mix(in srgb,#fff 5%,transparent),transparent)}
 .ds-brand{display:flex;align-items:center;gap:10px;min-width:186px;flex:none}
 .ds-logo svg{display:block;border-radius:inherit}
@@ -499,6 +559,24 @@ window.__ModuleLoader__.load({
 @keyframes ds-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 @keyframes ds-spin{to{transform:rotate(360deg)}}
 @keyframes ds-progress{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.ds-select{width:100%;height:33px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 32%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);padding:0 8px;font:inherit;font-size:11.5px;outline:none;cursor:pointer}
+.ds-select:focus{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 65%,transparent)}
+.ds-history-meta{display:flex;align-items:center;gap:4px;margin-left:2px;flex-wrap:wrap}
+.ds-badge{display:inline-flex;align-items:center;height:16px;padding:0 5px;border-radius:5px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#182030) 40%,transparent);font-size:9px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap}
+.ds-badge.is-long{border-color:color-mix(in srgb,#a855f7 55%,transparent);color:#c084fc}
+.ds-badge.is-ws{border-color:color-mix(in srgb,#22d3ee 45%,transparent);color:#67e8f9}
+.ds-history-item{align-items:flex-start}
+.ds-deck-foot{display:flex;align-items:center;gap:8px;padding:10px 16px 16px;flex-wrap:wrap}
+.ds-more{height:30px;padding:0 14px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 30%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);font:inherit;font-size:11px;cursor:pointer}
+.ds-more:hover{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 55%,transparent)}
+.ds-long-cta{display:flex;align-items:flex-start;gap:10px;width:calc(100% - 32px);margin:6px 16px 0;padding:11px 13px;border-radius:11px;border:1px dashed color-mix(in srgb,#a855f7 55%,transparent);background:color-mix(in srgb,#a855f7 8%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);font:inherit;text-align:left;cursor:pointer}
+.ds-long-cta:hover{background:color-mix(in srgb,#a855f7 14%,transparent)}
+.ds-long-cta strong{display:block;font-size:11.5px;font-weight:650;margin-bottom:2px}
+.ds-long-cta span{font-size:10px;line-height:1.5;color:var(--dsw-alias-label-secondary,#98a6bf)}
+.ds-long-icon{flex:none;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:color-mix(in srgb,#a855f7 18%,transparent);color:#c084fc}
+.ds-pending{display:inline-flex;align-items:center;gap:5px}
+.ds-pending .ds-dot{width:5px;height:5px;border-radius:50%;background:#22d3ee;animation:ds-blink 1s ease-in-out infinite}
+@keyframes ds-blink{0%,100%{opacity:.25}50%{opacity:1}}
 @media (max-width:1100px){.ds-side{width:278px}.ds-indexed{display:none}.ds-sub{display:none}.ds-brand{min-width:auto}.ds-top{gap:10px}}
 @media (max-width:860px){.ds-root{padding:0}.ds-modal{width:100vw;height:100vh;border-radius:0}.ds-side{display:none}.ds-main{padding:18px}.ds-hero-cards{grid-template-columns:1fr}.ds-top{padding:10px 12px}.ds-search{height:42px}.ds-kbd{display:none}.ds-deck{inset:0;border-radius:0}}
 @media (prefers-reduced-motion:reduce){.ds-backdrop,.ds-modal,.ds-deck,.ds-welcome,.ds-skel,.ds-modal::before,.ds-modal::after,.ds-progress{animation:none!important}.ds-result:hover{transform:none}}
@@ -521,7 +599,13 @@ window.__ModuleLoader__.load({
     const JUMP_LOCATE_MS = 8_000
     let sessionsCache = { at: 0, payload: null }
     const PREFS_KEY = 'flash-anchor:prefs:v1'
-    const APPEARANCE_DEFAULT = { blur: 16, alpha: 90 }
+    // 0 = no compositor blur. Anything above costs a full-screen offscreen pass
+    // per frame, which is why the default is off.
+    const APPEARANCE_DEFAULT = { blur: 0, alpha: 96 }
+    // Results are appended in pages: 400 buttons at once is what made the deck
+    // scroll stutter.
+    const PAGE_SIZE = 60
+    const PROGRESS_MS = 700
 
     function defaultPrefs() {
       return {
@@ -533,6 +617,8 @@ window.__ModuleLoader__.load({
         sort: 'relevance',
         timeOrder: 'desc',
         query: '',
+        workspace: '',
+        long: false,
         blur: APPEARANCE_DEFAULT.blur,
         alpha: APPEARANCE_DEFAULT.alpha,
         speculative: false,
@@ -569,6 +655,8 @@ window.__ModuleLoader__.load({
           sort: saved.sort === 'time' ? 'time' : 'relevance',
           timeOrder: saved.timeOrder === 'asc' ? 'asc' : 'desc',
           query: typeof saved.query === 'string' ? saved.query : '',
+          workspace: typeof saved.workspace === 'string' ? saved.workspace : '',
+          long: saved.long === true,
           blur: clampNumber(saved.blur, 0, 48, defaults.blur),
           alpha: clampNumber(saved.alpha, 55, 100, defaults.alpha),
           speculative: saved.speculative === true,
@@ -594,11 +682,25 @@ window.__ModuleLoader__.load({
       return JSON.stringify([
         String((parts && parts.query) || '').trim(),
         parts && parts.scopeMode === 'session' ? String(parts.selectedSession || '') : 'all',
+        String((parts && parts.workspace) || ''),
         [...((parts && parts.types) || [])].slice().sort(),
         String((parts && parts.ext) || '').trim(),
         (parts && parts.sort) || 'relevance',
         (parts && parts.timeOrder) || 'desc',
+        parts && parts.long === true ? 1 : 0,
       ])
+    }
+
+    /** Does the current filter set describe a search at all? */
+    function filterOnlySearch(filters) {
+      if (!filters) return false
+      if (String(filters.query || '').trim()) return true
+      if (String(filters.ext || '').trim()) return true
+      if (String(filters.workspace || '')) return true
+      if (filters.scopeMode === 'session' && filters.selectedSession) return true
+      if (filters.long === true) return true
+      const types = Array.isArray(filters.types) ? filters.types : []
+      return types.length !== ALL_TYPES.length
     }
 
     function delay(ms) {
@@ -1768,6 +1870,7 @@ window.__ModuleLoader__.load({
       if (kind === 'tools') return '#f59e0b'
       if (kind === 'outputFiles') return '#34d399'
       if (kind === 'userText') return '#06b6d4'
+      if (kind === 'long') return '#a855f7'
       return '#2dd4bf'
     }
 
@@ -2012,35 +2115,39 @@ window.__ModuleLoader__.load({
       const [ext, setExt] = React.useState('')
       const [sort, setSort] = React.useState(initial.sort)
       const [timeOrder, setTimeOrder] = React.useState(initial.timeOrder || 'desc')
+      const [workspace, setWorkspace] = React.useState(initial.workspace || '')
+      const [long, setLong] = React.useState(initial.long === true)
       const [blur, setBlur] = React.useState(initial.blur)
       const [alpha, setAlpha] = React.useState(initial.alpha)
-      const [speculative, setSpeculative] = React.useState(initial.speculative === true)
       const [scatter, setScatter] = React.useState(initial.scatter !== false)
       const [threads, setThreads] = React.useState(initial.threads || 2)
-      const [sessionsState, setSessionsState] = React.useState({
-        loading: true,
-        items: [],
-        error: null,
-        indexedSessions: 0,
-        indexedDocs: 0,
-      })
+      const [sessionsState, setSessionsState] = React.useState({ loading: false, loaded: false, items: [] })
+      const [workspaces, setWorkspaces] = React.useState([])
       const [data, setData] = React.useState(null)
       const [searching, setSearching] = React.useState(Boolean(initial.resultsOpen))
       const [resultsOpen, setResultsOpen] = React.useState(Boolean(initial.resultsOpen))
-      const [preload, setPreload] = React.useState({ phase: 'idle', total: 0 })
+      const [progress, setProgress] = React.useState({ pending: 0 })
       const [error, setError] = React.useState(null)
       const [notice, setNotice] = React.useState(null)
       const [history, setHistory] = React.useState([])
       const [savedId, setSavedId] = React.useState(initial.savedId || null)
       const [stateReady, setStateReady] = React.useState(false)
+      // A history entry is a snapshot of *its* filters. Opening it must not
+      // overwrite the filters the reader had before, and leaving it must put
+      // them back.
+      const [viewSaved, setViewSaved] = React.useState(null)
       const [indexStatus, setIndexStatus] = React.useState({
         ready: false,
         running: false,
         done: 0,
         total: 0,
+        pending: 0,
         sessions: 0,
         docs: 0,
+        longDocs: 0,
+        longSessions: 0,
         autoIndex: true,
+        autoLong: true,
         revision: 0,
       })
       const inputRef = React.useRef(null)
@@ -2049,71 +2156,66 @@ window.__ModuleLoader__.load({
       const noticeTimer = React.useRef(null)
       const saveTimer = React.useRef(null)
       const prefsRef = React.useRef(null)
-      const initialRestore = React.useMemo(() => {
-        if (!initial.resultsOpen || !initial.savedId) return null
-        return {
-          id: String(initial.savedId),
-          query: initial.query,
-          scope: initial.scopeMode === 'session' ? initial.selectedSession : 'all',
-          types: initial.types,
-          exts: String(initial.ext || '')
-            .split(/[,，;\s]+/)
-            .map((value) => value.trim().replace(/^\.+/, '').toLowerCase())
-            .filter(Boolean),
-          sort: initial.sort === 'time' ? (initial.timeOrder === 'asc' ? 'time-asc' : 'time') : 'relevance',
-        }
-      }, [])
+      const homeRef = React.useRef(null)
       const lastSearchRef = React.useRef('')
-      const lastPayloadRef = React.useRef(null)
-      const preloadRef = React.useRef(new Map())
-      const preloadAbortRef = React.useRef(null)
+      const pendingRef = React.useRef(0)
+
+      const filters = React.useMemo(
+        () => ({ query, scopeMode, selectedSession, types, ext, sort, timeOrder, workspace, long }),
+        [query, scopeMode, selectedSession, types, ext, sort, timeOrder, workspace, long],
+      )
+      const currentSignature = searchSignature(filters)
 
       const showNotice = React.useCallback((message) => {
         setNotice(message)
         if (noticeTimer.current) window.clearTimeout(noticeTimer.current)
-        noticeTimer.current = window.setTimeout(() => setNotice(null), 2400)
+        noticeTimer.current = window.setTimeout(() => setNotice(null), 2600)
+      }, [])
+
+      const applyFilters = React.useCallback((next) => {
+        if (!next) return
+        setQuery(String(next.query || ''))
+        setScopeMode(next.scopeMode === 'session' ? 'session' : 'all')
+        setSelectedSession(next.scopeMode === 'session' ? String(next.selectedSession || '') : '')
+        setTypes(Array.isArray(next.types) && next.types.length > 0 ? next.types : defaultTypes('all'))
+        setExt(String(next.ext || ''))
+        setSort(next.sort === 'time' ? 'time' : 'relevance')
+        setTimeOrder(next.timeOrder === 'asc' ? 'asc' : 'desc')
+        setWorkspace(String(next.workspace || ''))
+        setLong(next.long === true)
       }, [])
 
       React.useEffect(() => {
-        const timer = window.setTimeout(() => inputRef.current && inputRef.current.focus(), 60)
+        const timer = window.setTimeout(() => inputRef.current && inputRef.current.focus(), 40)
         return () => window.clearTimeout(timer)
       }, [])
-
 
       React.useEffect(() => {
         return () => {
           if (abortRef.current) abortRef.current.abort()
-          if (preloadAbortRef.current) preloadAbortRef.current.abort()
           if (noticeTimer.current) window.clearTimeout(noticeTimer.current)
+          // Lazy indexing must stop the moment the panel is gone.
+          apiPost({ action: 'close' }, {}).catch(() => {})
         }
       }, [])
 
-      // Reopening the dialog shows the previous page at once. The snapshot is
-      // already in memory; only a cold start needs the saved-view request.
-      React.useEffect(() => {
-        if (!initialRestore) return
-        if (
-          resultCache.payload &&
-          resultCache.savedId === initialRestore.id &&
-          resultCache.signature === signatureOfEntry(initialRestore)
-        ) {
-          setResultsOpen(true)
-          setData(resultCache.payload)
-          setSavedId(initialRestore.id)
-          setSearching(false)
-          return
-        }
-        void loadSaved(initialRestore)
-      }, [])
-
+      // Opening the panel is one cheap request: the index loads in the Host
+      // while the window is already usable, and the session list is only fetched
+      // when the session picker is actually opened.
       React.useEffect(() => {
         let alive = true
-        const controller = new AbortController()
-        setSessionsState((current) => ({ ...current, loading: true, error: null }))
-        api({ action: 'state' }, controller.signal)
+        api({ action: 'boot' })
           .then((payload) => {
             if (!alive) return
             const server = payload.state || {}
+            setHistory(Array.isArray(server.history) ? server.history : [])
+            setWorkspaces(Array.isArray(payload.workspaces) ? payload.workspaces : [])
+            setIndexStatus({
+              ...(payload.index || {}),
+              autoIndex: payload.index ? payload.index.autoIndex !== false : server.autoIndex !== false,
+              autoLong: payload.index ? payload.index.autoLong !== false : server.autoLong !== false,
+            })
+            setStateReady(true)
             const prefs = server.prefs && typeof server.prefs === 'object' ? server.prefs : null
             let localPrefs = null
             try {
@@ -2124,93 +2226,91 @@ window.__ModuleLoader__.load({
             if (!localPrefs && prefs) {
               // First run in this browser: adopt the Host copy once.
               const mode = ['model', 'user', 'all'].includes(prefs.objectMode) ? prefs.objectMode : 'all'
-              const savedTypes = Array.isArray(prefs.types)
-                ? prefs.types.filter((kind) => ALL_TYPES.includes(kind))
-                : []
-              setQuery(typeof prefs.query === 'string' ? prefs.query : '')
-              setScopeMode(prefs.scopeMode === 'session' ? 'session' : 'all')
-              setSelectedSession(typeof prefs.selectedSession === 'string' ? prefs.selectedSession : '')
-              setObjectMode(mode)
-              setTypes(savedTypes.length > 0 ? savedTypes : defaultTypes(mode))
-              setExt('')
-              setSort(prefs.sort === 'time' ? 'time' : 'relevance')
-              setTimeOrder(prefs.timeOrder === 'asc' ? 'asc' : 'desc')
+              const savedTypes = Array.isArray(prefs.types) ? prefs.types.filter((kind) => ALL_TYPES.includes(kind)) : []
+              applyFilters({
+                query: typeof prefs.query === 'string' ? prefs.query : '',
+                scopeMode: prefs.scopeMode === 'session' ? 'session' : 'all',
+                selectedSession: typeof prefs.selectedSession === 'string' ? prefs.selectedSession : '',
+                types: savedTypes.length > 0 ? savedTypes : defaultTypes(mode),
+                ext: '',
+                sort: prefs.sort === 'time' ? 'time' : 'relevance',
+                timeOrder: prefs.timeOrder === 'asc' ? 'asc' : 'desc',
+                workspace: typeof prefs.workspace === 'string' ? prefs.workspace : '',
+                long: prefs.long === true,
+              })
               setBlur(clampNumber(prefs.blur, 0, 48, APPEARANCE_DEFAULT.blur))
               setAlpha(clampNumber(prefs.alpha, 55, 100, APPEARANCE_DEFAULT.alpha))
-              setSpeculative(prefs.speculative === true)
               setScatter(prefs.scatter !== false)
               setThreads(clampNumber(prefs.threads, 1, 8, 2))
-              if (prefs.resultsOpen && prefs.savedId) {
-                window.setTimeout(() => {
-                  void loadSaved({
-                    id: String(prefs.savedId),
-                    query: typeof prefs.query === 'string' ? prefs.query : '',
-                    scope: prefs.scopeMode === 'session' ? prefs.selectedSession : 'all',
-                    types: savedTypes,
-                    exts: typeof prefs.ext === 'string' ? prefs.ext.split(/[,，;\s]+/).filter(Boolean) : [],
-                    sort: prefs.sort === 'time' ? (prefs.timeOrder === 'asc' ? 'time-asc' : 'time') : 'relevance',
-                  })
-                }, 0)
-              }
             }
-            setHistory(Array.isArray(server.history) ? server.history : [])
-            setIndexStatus({
-              ...(payload.index || {}),
-              autoIndex: payload.index ? payload.index.autoIndex !== false : server.autoIndex !== false,
-            })
-            setStateReady(true)
+
           })
           .catch((reason) => {
-            if (!alive || (reason && reason.name === 'AbortError')) return
+            if (!alive) return
             setStateReady(true)
-            setSessionsState((current) => ({
-              ...current,
-              loading: false,
-              error: reason && reason.message === 'AUTH' ? t('auth.error') : t('error.network'),
-            }))
+            setError(reason && reason.message === 'AUTH' ? t('auth.error') : t('error.network'))
           })
         return () => {
           alive = false
-          controller.abort()
         }
       }, [t])
 
+      // The index is still loading: poll until it reports ready, then pick up the
+      // workspace list it could not answer yet.
       React.useEffect(() => {
+        if (!stateReady || indexStatus.ready) return
         let alive = true
-        const controller = new AbortController()
-        const fresh = sessionsCache.payload && Date.now() - sessionsCache.at < 20_000 ? sessionsCache.payload : null
-        if (fresh) {
-          setSessionsState({
-            loading: false,
-            items: Array.isArray(fresh.sessions) ? fresh.sessions : [],
-            error: null,
-            indexedSessions: Number(fresh.indexedSessions) || 0,
-            indexedDocs: Number(fresh.indexedDocs) || 0,
-          })
-          return () => {
-            alive = false
-          }
+        const timer = window.setInterval(() => {
+          api({ action: 'status' })
+            .then((payload) => {
+              if (!alive || !payload.index) return
+              setIndexStatus((current) => ({ ...current, ...payload.index }))
+              if (payload.index.ready) {
+                window.clearInterval(timer)
+                api({ action: 'workspaces' })
+                  .then((next) => {
+                    if (alive && Array.isArray(next.workspaces)) setWorkspaces(next.workspaces)
+                  })
+                  .catch(() => {})
+              }
+            })
+            .catch(() => {})
+        }, 450)
+        return () => {
+          alive = false
+          window.clearInterval(timer)
         }
-        api({ action: 'sessions' }, controller.signal)
+      }, [stateReady, indexStatus.ready])
+
+      const loadSessions = React.useCallback(() => {
+        let already = false
+        setSessionsState((current) => {
+          if (current.loading) {
+            already = true
+            return current
+          }
+          return { ...current, loading: true }
+        })
+        if (already) return
+        api({ action: 'sessions' })
           .then((payload) => {
-            if (!alive) return
             sessionsCache = { at: Date.now(), payload }
             setSessionsState({
               loading: false,
+              loaded: true,
+              at: Date.now(),
               items: Array.isArray(payload.sessions) ? payload.sessions : [],
-              error: null,
-              indexedSessions: Number(payload.indexedSessions) || 0,
-              indexedDocs: Number(payload.indexedDocs) || 0,
             })
           })
-          .catch(() => {
-            if (alive) setSessionsState((current) => ({ ...current, loading: false }))
-          })
-        return () => {
-          alive = false
-          controller.abort()
-        }
-      }, [t])
+          .catch(() => setSessionsState((current) => ({ ...current, loading: false })))
+      }, [])
+
+      // Only the picker needs the session list; opening the panel must not.
+      React.useEffect(() => {
+        if (scopeMode !== 'session') return
+        if (sessionsState.loaded || sessionsState.loading) return
+        loadSessions()
+      }, [scopeMode, sessionsState.loaded, sessionsState.loading, loadSessions])
 
       React.useEffect(() => {
         prefsRef.current = {
@@ -2222,30 +2322,29 @@ window.__ModuleLoader__.load({
           sort,
           timeOrder,
           query,
+          workspace,
+          long,
           blur,
           alpha,
-          speculative,
           scatter,
           threads,
           resultsOpen,
           savedId,
         }
-        // Local storage is the restore path: write it even before the Host
-        // answers, so a slow request cannot lose a filter change.
         savePrefs(prefsRef.current)
         if (!stateReady) return
         if (saveTimer.current) window.clearTimeout(saveTimer.current)
         saveTimer.current = window.setTimeout(() => {
           saveTimer.current = null
           apiPost({ action: 'savePrefs' }, { prefs: prefsRef.current }).catch(() => {})
-        }, 260)
+        }, 320)
         return () => {
           if (saveTimer.current) {
             window.clearTimeout(saveTimer.current)
             saveTimer.current = null
           }
         }
-      }, [stateReady, scopeMode, selectedSession, objectMode, types, ext, sort, timeOrder, query, blur, alpha, speculative, scatter, threads, resultsOpen, savedId])
+      }, [stateReady, scopeMode, selectedSession, objectMode, types, ext, sort, timeOrder, query, workspace, long, blur, alpha, scatter, threads, resultsOpen, savedId])
 
       React.useEffect(() => {
         return () => {
@@ -2256,39 +2355,15 @@ window.__ModuleLoader__.load({
       }, [])
 
       React.useEffect(() => {
-        if (!indexStatus.running) return
-        const timer = window.setInterval(() => {
-          api({ action: 'status' })
-            .then((payload) => {
-              if (payload.index) setIndexStatus(payload.index)
-            })
-            .catch(() => {})
-        }, 1200)
-        return () => window.clearInterval(timer)
-      }, [indexStatus.running])
-
-      React.useEffect(() => {
-        if (sessionsState.loading || sessionsState.items.length === 0) return
-        if (!selectedSession) return
-        if (sessionsState.items.some((item) => item.id === selectedSession)) return
-        setSelectedSession('')
-        if (scopeMode === 'session') setScopeMode('all')
-      }, [sessionsState.loading, sessionsState.items, selectedSession, scopeMode])
-
-      React.useEffect(() => {
         function onKeyDown(event) {
           if (event.key !== 'Escape') return
-          if (resultsOpen) {
-            event.preventDefault()
-            setResultsOpen(false)
-          } else {
-            event.preventDefault()
-            onClose()
-          }
+          event.preventDefault()
+          if (resultsOpen) goBack()
+          else onClose()
         }
         window.addEventListener('keydown', onKeyDown)
         return () => window.removeEventListener('keydown', onKeyDown)
-      }, [resultsOpen, onClose])
+      })
 
       React.useEffect(() => {
         function onKeyDown(event) {
@@ -2344,68 +2419,50 @@ window.__ModuleLoader__.load({
         const saved = Array.isArray(entry && entry.types) ? entry.types.filter((kind) => ALL_TYPES.includes(kind)) : []
         return saved.length > 0 ? saved : defaultTypes('all')
       }
-
       const entryExtsOf = (entry) =>
         (Array.isArray(entry && entry.exts) ? entry.exts : [])
           .map((value) => String(value || '').trim().replace(/^\.+/, '').toLowerCase())
           .filter(Boolean)
-
       const entryScopeOf = (entry) => (entry && entry.scope && entry.scope !== 'all' ? String(entry.scope) : 'all')
-
-      const entrySortOf = (entry) =>
-        entry && (entry.sort === 'time' || entry.sort === 'time-asc') ? entry.sort : 'relevance'
-
-      const signatureOfEntry = (entry) => {
-        const scope = entryScopeOf(entry)
-        const exts = entryExtsOf(entry)
-        const sortValue = entrySortOf(entry)
-        return searchSignature({
-          query: typeof entry.query === 'string' ? entry.query : '',
-          scopeMode: scope === 'all' ? 'all' : 'session',
-          selectedSession: scope === 'all' ? '' : scope,
-          types: entryTypesOf(entry),
-          ext: exts.join(', '),
-          sort: sortValue === 'relevance' ? 'relevance' : 'time',
-          timeOrder: sortValue === 'time-asc' ? 'asc' : 'desc',
-        })
-      }
+      const entrySortOf = (entry) => (entry && (entry.sort === 'time' || entry.sort === 'time-asc') ? entry.sort : 'relevance')
+      const filtersOfEntry = (entry) => ({
+        query: typeof entry.query === 'string' ? entry.query : '',
+        scopeMode: entryScopeOf(entry) === 'all' ? 'all' : 'session',
+        selectedSession: entryScopeOf(entry) === 'all' ? '' : entryScopeOf(entry),
+        types: entryTypesOf(entry),
+        ext: entryExtsOf(entry).join(', '),
+        sort: entrySortOf(entry) === 'relevance' ? 'relevance' : 'time',
+        timeOrder: entrySortOf(entry) === 'time-asc' ? 'asc' : 'desc',
+        workspace: String((entry && entry.workspace) || ''),
+        long: entry && entry.long === true,
+      })
+      const signatureOfEntry = (entry) => searchSignature(filtersOfEntry(entry))
 
       const runSearch = React.useCallback(
-        // filters: run this exact filter set instead of the current state. A
-        // saved view that expired replays its own filters, never the stale
-        // React state left over from the previous render.
-        async (override, force, filters) => {
-          const active = filters || { query, scopeMode, selectedSession, types, ext, sort, timeOrder }
+        async (override, force, filterSet, options = {}) => {
+          const active = filterSet || filters
           const text = String(typeof override === 'string' ? override : active.query).trim()
           const suffix = String(active.ext || '').trim()
-          if (!text && !suffix) {
-            showNotice(t('need.query'))
+          const probe = { ...active, query: text }
+          if (!filterOnlySearch(probe)) {
+            showNotice(t('need.filters'))
             if (inputRef.current) inputRef.current.focus()
-            return
+            return null
           }
           if (active.scopeMode === 'session' && !active.selectedSession) {
             showNotice(t('need.session'))
-            return
+            return null
           }
           if (!Array.isArray(active.types) || active.types.length === 0) {
             showNotice(t('need.types'))
-            return
+            return null
           }
-          const signature = searchSignature({
-            query: text,
-            scopeMode: active.scopeMode,
-            selectedSession: active.selectedSession,
-            types: active.types,
-            ext: suffix,
-            sort: active.sort,
-            timeOrder: active.timeOrder,
-          })
+          const signature = searchSignature(probe)
           lastSearchRef.current = signature
-          if (override) setQuery(override)
+          if (typeof override === 'string') setQuery(override)
           setError(null)
           const near = force ? null : searchCache.get(signature)
           if (near && Date.now() - near.at < SEARCH_CACHE_MS) {
-            // Memory hit wins the race: cancel whatever full scan is in flight.
             if (abortRef.current) abortRef.current.abort()
             searchCache.delete(signature)
             searchCache.set(signature, near)
@@ -2413,31 +2470,16 @@ window.__ModuleLoader__.load({
             setSearching(false)
             setData(near.payload)
             setSavedId(near.payload.savedId || null)
+            pendingRef.current = Number(near.payload.pending) || 0
+            setProgress({ pending: pendingRef.current })
             remember(near.payload, signature)
             if (Array.isArray(near.payload.history)) setHistory(near.payload.history)
-            if (near.payload.index) setIndexStatus(near.payload.index)
+            if (near.payload.index) setIndexStatus((current) => ({ ...current, ...near.payload.index }))
             return near.payload
           }
-          if (!force && speculative && preloadRef.current.has(signature)) {
-            // Memory hit: serve the preloaded snapshot now instead of scanning.
-            const cached = preloadRef.current.get(signature)
-            preloadRef.current.delete(signature)
-            preloadRef.current.set(signature, cached)
-            if (abortRef.current) abortRef.current.abort()
-            setResultsOpen(true)
-            setSearching(false)
-            setData(cached)
-            setSavedId(cached.savedId || null)
-            remember(cached, signature)
-            setPreload({ phase: 'hit', total: Number(cached.total) || 0 })
-            if (Array.isArray(cached.history)) setHistory(cached.history)
-            if (cached.index) setIndexStatus(cached.index)
-            return cached
-          }
           setResultsOpen(true)
-          setData(null)
           setSearching(true)
-          lastPayloadRef.current = null
+          if (!(options && options.silent)) setData(null)
           if (abortRef.current) abortRef.current.abort()
           const controller = new AbortController()
           abortRef.current = controller
@@ -2445,6 +2487,8 @@ window.__ModuleLoader__.load({
             action: 'search',
             q: text,
             scope: active.scopeMode === 'session' ? active.selectedSession : 'all',
+            workspace: String(active.workspace || ''),
+            long: active.long === true ? '1' : '0',
             types: active.types.join(','),
             ext: suffix,
             sort: active.sort === 'time' ? (active.timeOrder === 'asc' ? 'time-asc' : 'time') : 'relevance',
@@ -2454,43 +2498,25 @@ window.__ModuleLoader__.load({
             // set can never be displayed under the current chips.
             sig: signature,
           }
+          // A filter tweak is not a new history row; only an explicit search is.
+          if (options && options.auto) request.auto = '1'
           try {
             const payload = await api(request, controller.signal)
-            if (controller.signal.aborted) return
-            if (payload.signature && payload.signature !== signature) return
+            if (controller.signal.aborted) return null
+            if (payload.signature && payload.signature !== signature) return null
             setData(payload)
             setSavedId(payload.savedId || null)
             remember(payload, signature)
             searchCache.set(signature, { at: Date.now(), payload })
             while (searchCache.size > 8) searchCache.delete(searchCache.keys().next().value)
             if (Array.isArray(payload.history)) setHistory(payload.history)
-            if (payload.index) setIndexStatus(payload.index)
+            if (payload.index) setIndexStatus((current) => ({ ...current, ...payload.index }))
             if (payload.scopeMissing) showNotice(t('results.scopeMissing'))
-            if (!speculative) setPreload({ phase: 'off', total: 0 })
-            else if (!payload || !payload.truncated) setPreload({ phase: 'complete', total: Number(payload && payload.total) || 0 })
-            lastPayloadRef.current = payload
-            if (speculative && payload && payload.truncated) {
-              setPreload({ phase: 'running', total: Number(payload.total) || 0 })
-              // Partial page shown: pull the complete snapshot in the
-              // background so the next identical search is a memory hit.
-              if (preloadAbortRef.current) preloadAbortRef.current.abort()
-              const preloadController = new AbortController()
-              preloadAbortRef.current = preloadController
-              window.setTimeout(() => {
-                void api({ ...request, limit: 2000, preload: 1 }, preloadController.signal)
-                  .then((full) => {
-                    if (!full || preloadController.signal.aborted) return
-                    const cache = preloadRef.current
-                    cache.delete(signature)
-                    cache.set(signature, full)
-                    while (cache.size > 8) cache.delete(cache.keys().next().value)
-                    setPreload({ phase: 'ready', total: Number(full.total) || 0 })
-                  })
-                  .catch(() => {})
-              }, 700)
-            }
+            pendingRef.current = Number(payload.pending) || 0
+            setProgress({ pending: pendingRef.current })
+            return payload
           } catch (reason) {
-            if (controller.signal.aborted || (reason && reason.name === 'AbortError')) return
+            if (controller.signal.aborted || (reason && reason.name === 'AbortError')) return null
             const message =
               reason && reason.message === 'AUTH'
                 ? t('auth.error')
@@ -2500,30 +2526,66 @@ window.__ModuleLoader__.load({
                     ? reason.message
                     : t('results.error')
             setError(message)
+            return null
           } finally {
             if (abortRef.current === controller) setSearching(false)
           }
-          return lastPayloadRef.current
         },
-        [query, ext, scopeMode, selectedSession, types, sort, timeOrder, speculative, scatter, threads, showNotice, t],
+        [filters, scatter, threads, showNotice, t],
       )
 
-      // Declared after runSearch on purpose: reading it in the deps array
-      // before its const initializer runs would throw (TDZ).
-      // Filters are not a submit-time snapshot: tweaking one while a result page
-      // is open re-runs the query with the new filters instead of leaving stale
-      // results on screen.
+      // While the background pass is still reading sessions, refresh the page as
+      // its hits arrive instead of leaving the reader with a partial answer.
       React.useEffect(() => {
-        if (!stateReady || !resultsOpen || !data) return
-        const text = query.trim()
-        if (!text && !ext.trim()) return
-        const signature = searchSignature({ query, scopeMode, selectedSession, types, ext, sort, timeOrder })
-        if (signature === lastSearchRef.current) return
+        if (!resultsOpen || !progress.pending || searching || viewSaved) return
+        let alive = true
+        let rounds = 0
+        const timer = window.setInterval(() => {
+          rounds += 1
+          if (rounds > 90) {
+            window.clearInterval(timer)
+            setProgress({ pending: 0 })
+            return
+          }
+          api({ action: 'status' })
+            .then((payload) => {
+              if (!alive || !payload.index) return
+              const next = Number(payload.index.pending) || 0
+              setIndexStatus((current) => ({ ...current, ...payload.index }))
+              if (next < pendingRef.current) {
+                pendingRef.current = next
+                setProgress({ pending: next })
+                void runSearch(undefined, true, undefined, { auto: true, silent: true })
+              } else if (next === 0) {
+                setProgress({ pending: 0 })
+              }
+            })
+            .catch(() => {})
+        }, PROGRESS_MS)
+        return () => {
+          alive = false
+          window.clearInterval(timer)
+        }
+      }, [resultsOpen, progress.pending, searching, viewSaved, runSearch])
+
+      // Filter tweaks re-run the query in place; they never write a history row.
+      React.useEffect(() => {
+        if (!stateReady || !resultsOpen || !data || viewSaved) return
+        if (searchSignature(filters) === lastSearchRef.current) return
+        if (!filterOnlySearch(filters)) return
         const timer = window.setTimeout(() => {
-          void runSearch()
-        }, 420)
+          void runSearch(undefined, true, filters, { auto: true, silent: true })
+        }, 260)
         return () => window.clearTimeout(timer)
-      }, [stateReady, resultsOpen, data, query, scopeMode, selectedSession, types, ext, sort, timeOrder, runSearch])
+      }, [stateReady, resultsOpen, data, viewSaved, filters, runSearch])
+
+      // Changing any filter while a history entry is open leaves that snapshot
+      // and continues as a fresh search.
+      React.useEffect(() => {
+        if (!viewSaved) return
+        if (searchSignature(filters) === viewSaved.signature) return
+        setViewSaved(null)
+      }, [filters, viewSaved])
 
       const updateResults = async () => {
         const payload = await runSearch(undefined, true)
@@ -2532,33 +2594,18 @@ window.__ModuleLoader__.load({
 
       const loadSaved = async (entry) => {
         if (!entry || typeof entry.id !== 'string') return
-        const savedQuery = typeof entry.query === 'string' ? entry.query : ''
-        const scope = entryScopeOf(entry)
-        const entryExts = entryExtsOf(entry)
-        const entrySort = entrySortOf(entry)
-        const typesForMode = entryTypesOf(entry)
-        const hasModel = typesForMode.some((kind) => MODEL_TYPES.includes(kind))
-        const hasUser = typesForMode.some((kind) => USER_TYPES.includes(kind))
-        setQuery(savedQuery)
-        setScopeMode(scope === 'all' ? 'all' : 'session')
-        setSelectedSession(scope === 'all' ? '' : scope)
-        setObjectMode(hasModel && hasUser ? 'all' : hasUser ? 'user' : 'model')
-        setTypes(typesForMode)
-        setExt('')
-        setSort(entrySort === 'relevance' ? 'relevance' : 'time')
-        setTimeOrder(entrySort === 'time-asc' ? 'asc' : 'desc')
-        const entrySignature = signatureOfEntry(entry)
+        if (!homeRef.current) homeRef.current = filters
+        const entryFilters = filtersOfEntry(entry)
+        applyFilters(entryFilters)
+        const entrySignature = searchSignature(entryFilters)
         lastSearchRef.current = entrySignature
+        setViewSaved({ id: entry.id, signature: entrySignature })
         setResultsOpen(true)
         setError(null)
-        // A saved view is a snapshot, not a reason to rescan the corpus. The
-        // in-memory page is only this entry's when its filters match too: the
-        // saved id is the query, so the same query with other types shares it.
         if (resultCache.payload && resultCache.savedId === entry.id && resultCache.signature === entrySignature) {
           setData(resultCache.payload)
           setSavedId(entry.id)
           setSearching(false)
-          setPreload({ phase: 'idle', total: 0 })
           return
         }
         setSearching(true)
@@ -2567,81 +2614,98 @@ window.__ModuleLoader__.load({
         const controller = new AbortController()
         abortRef.current = controller
         try {
-          const signature = entrySignature
           const payload = await api(
             {
               action: 'saved',
               id: entry.id,
-              types: typesForMode.join(','),
-              scope: scope === 'all' ? 'all' : scope,
-              sort: entrySort,
-              ext: entryExts.join(','),
-              sig: signature,
+              types: entryFilters.types.join(','),
+              scope: entryFilters.scopeMode === 'session' ? entryFilters.selectedSession : 'all',
+              sort: entrySortOf(entry),
+              ext: entryExtsOf(entry).join(','),
+              sig: entrySignature,
             },
             controller.signal,
           )
           if (controller.signal.aborted) return
           const returnedTypes = Array.isArray(payload.types) ? [...payload.types].sort() : []
-          const expectedTypes = [...typesForMode].sort()
+          const expectedTypes = [...entryFilters.types].sort()
           const wrongFilters =
             JSON.stringify(returnedTypes) !== JSON.stringify(expectedTypes) ||
-            (payload.signature && payload.signature !== signature) ||
-            String(payload.scope ?? 'all') !== String(scope === 'all' ? 'all' : scope)
+            (payload.signature && payload.signature !== entrySignature)
           if (wrongFilters) {
-            // The snapshot describes other filters: replay this entry's own
-            // filters, not the ones still sitting in React state.
-            await runSearch(savedQuery, true, {
-          query: savedQuery,
-          scopeMode: scope === 'all' ? 'all' : 'session',
-          selectedSession: scope === 'all' ? '' : scope,
-          types: typesForMode,
-          ext: '',
-          sort: entrySort === 'relevance' ? 'relevance' : 'time',
-          timeOrder: entrySort === 'time-asc' ? 'asc' : 'desc',
-        })
+            await runSearch(entryFilters.query, true, entryFilters, { auto: true })
             return
           }
           setData(payload)
           setSavedId(payload.savedId || entry.id)
-          remember(payload, signature)
+          remember(payload, entrySignature)
           if (Array.isArray(payload.history)) setHistory(payload.history)
-          if (payload.index) setIndexStatus(payload.index)
+          if (payload.index) setIndexStatus((current) => ({ ...current, ...payload.index }))
         } catch (reason) {
           if (controller.signal.aborted) return
-          // The snapshot was cleared or evicted: fall back to one search.
-          if (savedQuery.trim()) {
+          if (entryFilters.query.trim() || filterOnlySearch(entryFilters)) {
             if (reason && reason.message === 'saved result not found') showNotice(t('results.staleRebuild'))
-            await runSearch(savedQuery, true, {
-          query: savedQuery,
-          scopeMode: scope === 'all' ? 'all' : 'session',
-          selectedSession: scope === 'all' ? '' : scope,
-          types: typesForMode,
-          ext: '',
-          sort: entrySort === 'relevance' ? 'relevance' : 'time',
-          timeOrder: entrySort === 'time-asc' ? 'asc' : 'desc',
-        })
+            await runSearch(entryFilters.query, true, entryFilters, { auto: true })
             return
           }
           setResultsOpen(false)
           setData(null)
-          showNotice(
-            reason && reason.message === 'saved result not found' ? t('results.error') : t('error.network'),
-          )
+          showNotice(t('results.error'))
         } finally {
           if (abortRef.current === controller) setSearching(false)
         }
+      }
+
+      // Restoring the last result page needs the history rows, which arrive with
+      // the boot reply; wait for them instead of racing them.
+      const restoreRef = React.useRef(initial.resultsOpen && initial.savedId ? String(initial.savedId) : null)
+      React.useEffect(() => {
+        if (!restoreRef.current) return
+        const entry = history.find((item) => item && item.id === restoreRef.current)
+        if (!entry) {
+          // The row is gone (deleted or rotated out): never leave a skeleton up.
+          if (history.length > 0) {
+            restoreRef.current = null
+            setSearching(false)
+            setResultsOpen(false)
+          }
+          return
+        }
+        restoreRef.current = null
+        void loadSaved(entry)
+      }, [history])
+
+      const loadSavedById = (id) => {
+        const entry = history.find((item) => item && item.id === id)
+        if (entry) return loadSaved(entry)
+        return null
+      }
+
+      const goBack = () => {
+        if (viewSaved) {
+          const home = homeRef.current
+          homeRef.current = null
+          setViewSaved(null)
+          if (home) applyFilters(home)
+          setResultsOpen(false)
+          setData(null)
+          setSavedId(null)
+          lastSearchRef.current = home ? searchSignature(home) : ''
+          return
+        }
+        setResultsOpen(false)
       }
 
       const deleteHistory = async (id) => {
         try {
           const payload = await apiPost({ action: 'deleteSaved' }, { id })
           if (payload.state && Array.isArray(payload.state.history)) setHistory(payload.state.history)
-          // Drop the client-side copies as well; the Host dropped the snapshot.
           if (resultCache.savedId === id) {
             resultCache.payload = null
             resultCache.savedId = null
-            if (savedId === id) setSavedId(null)
           }
+          if (savedId === id) setSavedId(null)
+          if (viewSaved && viewSaved.id === id) setViewSaved(null)
           for (const [key, entry] of searchCache) {
             if (entry && entry.payload && entry.payload.savedId === id) searchCache.delete(key)
           }
@@ -2684,10 +2748,14 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const applyStatus = (payload) => {
+        if (payload && payload.index) setIndexStatus((current) => ({ ...current, ...payload.index }))
+        if (payload && payload.state && Array.isArray(payload.state.history)) setHistory(payload.state.history)
+      }
+
       const startIndex = async () => {
         try {
-          const payload = await apiPost({ action: 'index' }, {})
-          if (payload.index) setIndexStatus(payload.index)
+          applyStatus(await apiPost({ action: 'index' }, {}))
         } catch {
           showNotice(t('index.failed'))
         }
@@ -2696,11 +2764,11 @@ window.__ModuleLoader__.load({
       const clearIndex = async () => {
         if (!window.confirm(t('index.clearConfirm'))) return
         try {
-          const payload = await apiPost({ action: 'clearIndex' }, {})
-          if (payload.index) setIndexStatus(payload.index)
+          applyStatus(await apiPost({ action: 'clearIndex' }, {}))
           setData(null)
           setResultsOpen(false)
           setSavedId(null)
+          setViewSaved(null)
         } catch {
           showNotice(t('index.failed'))
         }
@@ -2708,21 +2776,34 @@ window.__ModuleLoader__.load({
 
       const toggleAutoIndex = async () => {
         try {
-          const payload = await apiPost({ action: 'setAutoIndex' }, { autoIndex: !indexStatus.autoIndex })
-          if (payload.index) setIndexStatus(payload.index)
+          applyStatus(await apiPost({ action: 'setAutoIndex' }, { autoIndex: !indexStatus.autoIndex }))
         } catch {
           showNotice(t('index.failed'))
         }
       }
 
-      const scopeSummary =
-        scopeMode === 'session'
-          ? t('deck.within') + ' · ' + (selectedTitle || t('scope.noSession'))
-          : t('deck.allSessions')
+      const longOp = async (op, extra) => {
+        try {
+          applyStatus(await apiPost({ action: 'long' }, { op, ...(extra || {}) }))
+        } catch {
+          showNotice(t('index.failed'))
+        }
+      }
+
+      const clearLong = async () => {
+        if (!window.confirm(t('long.clearConfirm'))) return
+        await longOp('clear')
+      }
+
+      const searchLong = () => {
+        setLong(true)
+        void runSearch(undefined, true, { ...filters, long: true }, { auto: true })
+        showNotice(t('long.running'))
+      }
+
       const typeSummary = types.map((kind) => kindLabel(t, kind)).join(' · ')
-      // What the deck must currently be showing. A payload whose signature
-      // differs belongs to another filter set and is never rendered.
-      const currentSignature = searchSignature({ query, scopeMode, selectedSession, types, ext, sort, timeOrder })
+      const scopeSummary =
+        scopeMode === 'session' ? t('deck.within') + ' · ' + (selectedTitle || t('scope.noSession')) : t('deck.allSessions')
       const titleOfSession = (id) => {
         const found = sessionsState.items.find((item) => item.id === id)
         return found && found.title ? found.title : String(id || '')
@@ -2731,11 +2812,11 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         {
-          className: 'ds-root',
+          className: 'ds-root' + (Number(blur) > 0 ? ' is-blurred' : ''),
           style: {
             '--ds-blur': blur + 'px',
             '--ds-alpha': alpha + '%',
-            '--ds-alpha-soft': Math.max(55, alpha - 8) + '%',
+            '--ds-alpha-soft': Math.max(55, alpha - 6) + '%',
           },
         },
         h('div', { className: 'ds-backdrop', 'aria-hidden': 'true', onMouseDown: onClose }),
@@ -2829,6 +2910,9 @@ window.__ModuleLoader__.load({
               sessionsState,
               sessionFilter,
               setSessionFilter,
+              workspaces,
+              workspace,
+              onWorkspace: setWorkspace,
               objectMode,
               onObject: chooseObject,
               types,
@@ -2848,21 +2932,25 @@ window.__ModuleLoader__.load({
                 setAlpha(APPEARANCE_DEFAULT.alpha)
               },
               indexStatus,
-              speculative,
+              long,
+              onToggleLong: () => setLong((value) => !value),
               scatter,
               threads,
-              onToggleSpeculative: () => setSpeculative((value) => !value),
               onToggleScatter: () => setScatter((value) => !value),
               setThreads,
               onStartIndex: startIndex,
               onClearIndex: clearIndex,
               onToggleAutoIndex: toggleAutoIndex,
+              onLongRebuild: () => longOp('rebuild'),
+              onLongClear: clearLong,
+              onToggleAutoLong: () => longOp('auto', { autoLong: indexStatus.autoLong !== true }),
             }),
             h(WelcomePane, {
               t,
               history,
               onHistory: loadSaved,
               onDeleteHistory: deleteHistory,
+              indexStatus,
             }),
             resultsOpen
               ? h(ResultsDeck, {
@@ -2870,18 +2958,20 @@ window.__ModuleLoader__.load({
                   data,
                   searching,
                   error,
-                  query,
-                  onBack: () => setResultsOpen(false),
+                  progress,
+                  onBack: goBack,
                   onRetry: () => runSearch(undefined, true),
                   onUpdate: updateResults,
                   onOpen: openItem,
+                  onLongSearch: searchLong,
+                  longOn: long === true,
+                  canSearchLong: Number(indexStatus.longDocs) > 0 && long !== true,
                   scopeSummary,
                   typeSummary,
                   objectLabel: t('object.' + objectMode),
                   signature: currentSignature,
                   titleOf: titleOfSession,
-                  preload,
-                  speculative,
+                  viewSaved: viewSaved !== null,
                 })
               : null,
           ),
@@ -2906,6 +2996,7 @@ window.__ModuleLoader__.load({
 
       const selected = sessionsState.items.find((item) => item.id === props.selectedSession)
       const groups = props.objectMode === 'all' ? ['model', 'user'] : [props.objectMode]
+      const workspaces = Array.isArray(props.workspaces) ? props.workspaces : []
 
       return h(
         'aside',
@@ -2913,7 +3004,12 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'ds-section' },
-          h('div', { className: 'ds-label' }, h('span', null, t('scope')), h('span', { className: 'ds-label-hint' }, props.scopeMode === 'all' ? t('scope.allHint') : t('scope.sessionHint'))),
+          h(
+            'div',
+            { className: 'ds-label' },
+            h('span', null, t('scope')),
+            h('span', { className: 'ds-label-hint' }, props.scopeMode === 'all' ? t('scope.allHint') : t('scope.sessionHint')),
+          ),
           h(Segmented, {
             label: t('scope'),
             value: props.scopeMode,
@@ -2949,14 +3045,18 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { className: 'ds-picker' },
-                  h('div', { className: 'ds-picker-head' }, h('input', {
-                    className: 'ds-input',
-                    value: props.sessionFilter,
-                    placeholder: t('scope.filter'),
-                    'aria-label': t('scope.filter'),
-                    spellCheck: false,
-                    onChange: (event) => props.setSessionFilter(event.target.value),
-                  })),
+                  h(
+                    'div',
+                    { className: 'ds-picker-head' },
+                    h('input', {
+                      className: 'ds-input',
+                      value: props.sessionFilter,
+                      placeholder: t('scope.filter'),
+                      'aria-label': t('scope.filter'),
+                      spellCheck: false,
+                      onChange: (event) => props.setSessionFilter(event.target.value),
+                    }),
+                  ),
                   sessionsState.loading
                     ? h('div', { className: 'ds-picker-empty' }, t('scope.loading'))
                     : filteredSessions.length === 0
@@ -2987,6 +3087,33 @@ window.__ModuleLoader__.load({
                 ),
               )
             : null,
+        ),
+        h(
+          'div',
+          { className: 'ds-section' },
+          h(
+            'div',
+            { className: 'ds-label' },
+            h('span', null, t('ws')),
+            h('span', { className: 'ds-label-hint' }, t('ws.hint')),
+          ),
+          h(
+            'select',
+            {
+              className: 'ds-select',
+              value: props.workspace,
+              'aria-label': t('ws'),
+              onChange: (event) => props.onWorkspace(event.target.value),
+            },
+            h('option', { value: '' }, t('ws.all')),
+            workspaces.map((entry) =>
+              h(
+                'option',
+                { key: entry.cwd, value: entry.cwd },
+                basename(entry.cwd) + ' · ' + entry.sessions + ' ' + t('ws.sessions'),
+              ),
+            ),
+          ),
         ),
         h(
           'div',
@@ -3029,6 +3156,16 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+          h(
+            'div',
+            { className: 'ds-chips', style: { marginTop: '8px' } },
+            h(TypeChip, {
+              kind: 'long',
+              label: t('long'),
+              active: props.long === true,
+              onToggle: props.onToggleLong,
+            }),
+          ),
         ),
         h(
           'div',
@@ -3044,27 +3181,25 @@ window.__ModuleLoader__.load({
             ],
           }),
           props.sort === 'time'
-            ? h('div', { style: { marginTop: '7px' } }, h(Segmented, {
-                label: t('sort.order'),
-                value: props.timeOrder,
-                onChange: props.onTimeOrder,
-                options: [
-                  { value: 'desc', label: t('sort.newest') },
-                  { value: 'asc', label: t('sort.oldest') },
-                ],
-              }))
+            ? h(
+                'div',
+                { style: { marginTop: '7px' } },
+                h(Segmented, {
+                  label: t('sort.order'),
+                  value: props.timeOrder,
+                  onChange: props.onTimeOrder,
+                  options: [
+                    { value: 'desc', label: t('sort.newest') },
+                    { value: 'asc', label: t('sort.oldest') },
+                  ],
+                }),
+              )
             : null,
         ),
         h(
           'div',
           { className: 'ds-section' },
           h('div', { className: 'ds-label' }, h('span', null, t('settings.advanced'))),
-          h(SwitchRow, {
-            title: t('settings.preload'),
-            hint: t('settings.preloadHint'),
-            checked: props.speculative === true,
-            onChange: props.onToggleSpeculative,
-          }),
           h(SwitchRow, {
             title: t('settings.scatter'),
             hint: t('settings.scatterHint'),
@@ -3164,12 +3299,27 @@ window.__ModuleLoader__.load({
               { type: 'button', className: 'ds-mini-btn', onClick: props.onStartIndex, disabled: props.indexStatus.running },
               props.indexStatus.docs > 0 ? t('index.rebuild') : t('index.start'),
             ),
-            h(
-              'button',
-              { type: 'button', className: 'ds-mini-btn', onClick: props.onClearIndex },
-              t('index.clear'),
-            ),
+            h('button', { type: 'button', className: 'ds-mini-btn', onClick: props.onClearIndex }, t('index.clear')),
           ),
+          h('div', { className: 'ds-label', style: { marginTop: '10px' } }, h('span', null, t('long.title'))),
+          h(
+            'div',
+            { className: 'ds-index-status' },
+            Number(props.indexStatus.longDocs) > 0
+              ? t('long.ready', { docs: props.indexStatus.longDocs, sessions: props.indexStatus.longSessions })
+              : t('long.empty'),
+          ),
+          h(
+            'div',
+            { className: 'ds-index-actions' },
+            h('button', { type: 'button', className: 'ds-mini-btn', onClick: props.onLongRebuild }, t('long.rebuild')),
+            h('button', { type: 'button', className: 'ds-mini-btn', onClick: props.onLongClear }, t('long.clear')),
+          ),
+          h(SwitchRow, {
+            title: t('long.auto'),
+            checked: props.indexStatus.autoLong === true,
+            onChange: props.onToggleAutoLong,
+          }),
           h('div', { className: 'ds-privacy' }, h(SparkIcon, { size: 11 }), h('span', null, t('welcome.privacy'))),
         ),
       )
@@ -3177,6 +3327,8 @@ window.__ModuleLoader__.load({
 
     function WelcomePane(props) {
       const { t } = props
+      const status = props.indexStatus || {}
+      const rows = Array.isArray(props.history) ? props.history : []
       return h(
         'main',
         { className: 'ds-main' },
@@ -3187,14 +3339,32 @@ window.__ModuleLoader__.load({
           h('div', { className: 'ds-hero-sub' }, t('welcome.subtitle')),
           h(
             'div',
+            { className: 'ds-hero-chips' },
+            h(
+              'span',
+              { className: 'ds-hero-chip' },
+              t('index.ready', { sessions: Number(status.sessions) || 0, docs: Number(status.docs) || 0 }),
+            ),
+            Number(status.longDocs) > 0
+              ? h('span', { className: 'ds-hero-chip' }, t('long.ready', { docs: status.longDocs, sessions: status.longSessions }))
+              : null,
+            Number(status.pending) > 0
+              ? h('span', { className: 'ds-hero-chip' }, t('deck.pending', { done: Number(status.total) - Number(status.pending), total: Number(status.total) }))
+              : null,
+            Number(status.workspaces) > 0
+              ? h('span', { className: 'ds-hero-chip' }, t('ws') + ' × ' + status.workspaces)
+              : null,
+          ),
+          h(
+            'div',
             { className: 'ds-history' },
             h('div', { className: 'ds-label', style: { marginBottom: '2px' } }, h('span', null, t('history'))),
-            props.history.length === 0
+            rows.length === 0
               ? h('div', { className: 'ds-empty-history' }, t('history.empty'))
               : h(
                   'div',
                   { className: 'ds-history-list' },
-                  props.history.map((entry) =>
+                  rows.map((entry) =>
                     h(
                       'div',
                       { key: entry.id, className: 'ds-history-item' },
@@ -3203,10 +3373,20 @@ window.__ModuleLoader__.load({
                         {
                           type: 'button',
                           className: 'ds-history-chip',
-                          title: entry.query,
+                          title: entry.query || t('empty.query'),
                           onClick: () => props.onHistory(entry),
                         },
                         entry.query || t('empty.query'),
+                      ),
+                      h(
+                        'span',
+                        { className: 'ds-history-meta' },
+                        entry.scope && entry.scope !== 'all' ? h('span', { className: 'ds-badge' }, t('scope.session')) : null,
+                        entry.workspace ? h('span', { className: 'ds-badge is-ws' }, basename(entry.workspace)) : null,
+                        entry.long === true ? h('span', { className: 'ds-badge is-long' }, t('long')) : null,
+                        Array.isArray(entry.types) && entry.types.length > 0 && entry.types.length < ALL_TYPES.length
+                          ? h('span', { className: 'ds-badge' }, entry.types.map((kind) => kindLabel(t, kind)).join('·'))
+                          : null,
                       ),
                       h(
                         'button',
@@ -3231,29 +3411,25 @@ window.__ModuleLoader__.load({
     function ResultsDeck(props) {
       const { t, data, searching, error } = props
       // A payload is only this filter set's page when its signature says so.
-      // Rows under chips that describe another filter set is exactly how a
-      // reasoning hit used to show up labelled "user input".
       const view = data && (!data.signature || !props.signature || data.signature === props.signature) ? data : null
       const pending = searching || (data != null && view === null)
       const viewTypes = view && Array.isArray(view.types) && view.types.length > 0 ? view.types : null
-      const viewHasModel = viewTypes ? viewTypes.some((kind) => MODEL_TYPES.includes(kind)) : false
-      const viewHasUser = viewTypes ? viewTypes.some((kind) => USER_TYPES.includes(kind)) : false
-      const chipObject = viewTypes
-        ? t('object.' + (viewHasModel && viewHasUser ? 'all' : viewHasUser ? 'user' : 'model'))
-        : props.objectLabel
       const chipScope = view
         ? view.scope && view.scope !== 'all'
           ? t('deck.within') + ' · ' + props.titleOf(view.scope)
           : t('deck.allSessions')
         : props.scopeSummary
       const chipTypes = viewTypes ? viewTypes.map((kind) => kindLabel(t, kind)).join(' · ') : props.typeSummary
-      // A cached page reports its own hit cost; the search cost it replaces is
-      // kept beside it so the two numbers can never be confused.
       const original = view && view.cached && view.original ? view.original : view
+      const [visible, setVisible] = React.useState(PAGE_SIZE)
+      const items = view && Array.isArray(view.items) ? view.items : []
+      React.useEffect(() => {
+        setVisible(PAGE_SIZE)
+      }, [view])
+      const shown = React.useMemo(() => items.slice(0, visible), [items, visible])
       const groups = React.useMemo(() => {
-        if (!view || !Array.isArray(view.items)) return []
         const bySession = new Map()
-        for (const item of view.items) {
+        for (const item of shown) {
           let bucket = bySession.get(item.sessionId)
           if (!bucket) {
             bucket = []
@@ -3263,19 +3439,29 @@ window.__ModuleLoader__.load({
         }
         const seen = new Set()
         const result = []
-        for (const session of view.sessions || []) {
-          const items = bySession.get(session.id) || []
-          if (items.length === 0) continue
+        for (const session of (view && view.sessions) || []) {
+          const rows = bySession.get(session.id) || []
+          if (rows.length === 0) continue
           seen.add(session.id)
-          result.push({ ...session, items })
+          result.push({ ...session, items: rows })
         }
-        for (const [id, items] of bySession) {
+        for (const [id, rows] of bySession) {
           if (seen.has(id)) continue
-          result.push({ id, title: items[0].sessionTitle, cwd: items[0].cwd, count: items.length, items })
+          result.push({ id, title: rows[0].sessionTitle, cwd: rows[0].cwd, count: rows.length, items: rows })
         }
         return result
-      }, [view])
-
+      }, [view, shown])
+      const remaining = items.length - shown.length
+      const goMore = () => setVisible((value) => value + PAGE_SIZE)
+      const longCta =
+        props.canSearchLong === true
+          ? h(
+              'button',
+              { type: 'button', className: 'ds-long-cta', onClick: props.onLongSearch },
+              h('span', { className: 'ds-long-icon' }, h(SearchIcon, { size: 14 })),
+              h('span', null, h('strong', null, t('long.cta')), h('span', null, t('long.ctaHint'))),
+            )
+          : null
       return h(
         'section',
         { className: 'ds-deck', 'aria-label': t('results') },
@@ -3294,7 +3480,7 @@ window.__ModuleLoader__.load({
                 ? t('results.summary', {
                     count: view.total,
                     sessions: Array.isArray(view.sessions) ? view.sessions.length : 0,
-                    ms: view.tookMs,
+                    ms: view.cached ? Number(view.restoredMs) || 0 : Number(view.tookMs) || 0,
                   })
                 : pending
                   ? t('results.loading')
@@ -3303,7 +3489,14 @@ window.__ModuleLoader__.load({
           ),
           h(
             'button',
-            { type: 'button', className: 'ds-icon-btn', title: t('results.refresh'), 'aria-label': t('results.refresh'), onClick: props.onRetry, disabled: searching },
+            {
+              type: 'button',
+              className: 'ds-icon-btn',
+              title: t('results.refresh'),
+              'aria-label': t('results.refresh'),
+              onClick: props.onRetry,
+              disabled: searching,
+            },
             h(RefreshIcon, { size: 15, className: searching ? 'ds-spin' : null }),
           ),
         ),
@@ -3313,45 +3506,43 @@ window.__ModuleLoader__.load({
           { className: 'ds-deck-filters' },
           h('span', { className: 'ds-deck-filter-label' }, t('deck.filters')),
           h('span', { className: 'ds-deck-chip' }, chipScope),
-          h('span', { className: 'ds-deck-chip' }, chipObject),
+          view && view.workspace ? h('span', { className: 'ds-deck-chip' }, basename(view.workspace)) : null,
           h('span', { className: 'ds-deck-chip' }, chipTypes),
           view && view.query ? h('span', { className: 'ds-deck-chip' }, '“' + view.query + '”') : null,
-          view && view.cached ? h('span', { className: 'ds-deck-chip' }, t('deck.cached')) : null,
-          view && view.degraded ? h('span', { className: 'ds-deck-chip' }, t('deck.degraded')) : null,
-          view && view.cached && Number(view.originalTookMs) >= 0
-            ? h('span', { className: 'ds-deck-chip' }, t('deck.original', { ms: Number(view.originalTookMs) }))
+          view && view.long ? h('span', { className: 'ds-deck-chip' }, t('deck.longOn')) : null,
+          view && view.cached
+            ? h(
+                'span',
+                { className: 'ds-deck-chip' },
+                view.narrowed ? t('deck.narrowed') : t('deck.restored', { ms: Number(view.restoredMs ?? view.tookMs) || 0 }),
+              )
             : null,
+          view && view.cached && Number(view.originalTookMs) >= 0
+            ? h('span', { className: 'ds-deck-chip' }, t('deck.originalOnly', { ms: Number(view.originalTookMs) }))
+            : null,
+          view && !view.cached ? h('span', { className: 'ds-deck-chip' }, t('deck.took', { ms: Number(view.tookMs) || 0 })) : null,
+          view && view.degraded ? h('span', { className: 'ds-deck-chip' }, t('deck.degraded')) : null,
           view && view.threads
             ? h('span', { className: 'ds-deck-chip' }, view.threads > 1 ? t('deck.threads', { n: view.threads }) : t('deck.inline'))
+            : null,
+          Number(props.progress && props.progress.pending) > 0
+            ? h('span', { className: 'ds-deck-chip ds-pending' }, h('span', { className: 'ds-dot' }), t('deck.pending', {
+                done: Math.max(0, (Number(props.progress.total) || 0) - Number(props.progress.pending)),
+                total: Number(props.progress.total) || 0,
+              }))
             : null,
           original && Number.isFinite(original.surfaceMs)
             ? h('span', { className: 'ds-deck-chip' }, t('deck.timing', { surface: original.surfaceMs, match: Number(original.matchMs) || 0 }))
             : null,
-          original && Number(original.ensureMs || 0) + Number(original.listMs || 0) + Number(original.otherMs || 0) > 50
-            ? h(
-                'span',
-                { className: 'ds-deck-chip' },
-                t('deck.wait', {
-                  ms:
-                    Number(original.ensureMs || 0) + Number(original.listMs || 0) + Number(original.otherMs || 0),
-                }),
-              )
-            : null,
-          props.preload && props.preload.phase !== 'off' && props.preload.phase !== 'idle'
-            ? h(
-                'span',
-                { className: 'ds-preload-chip is-' + props.preload.phase },
-                props.preload.phase === 'running'
-                  ? t('preload.running')
-                  : props.preload.phase === 'ready'
-                    ? t('preload.ready', { count: props.preload.total })
-                    : props.preload.phase === 'hit'
-                      ? t('preload.hit')
-                      : t('preload.complete'),
-              )
-            : null,
         ),
-        error ? h('div', { className: 'ds-error', role: 'alert' }, h('span', null, error), h('button', { type: 'button', onClick: props.onRetry }, t('results.retry'))) : null,
+        error
+          ? h(
+              'div',
+              { className: 'ds-error', role: 'alert' },
+              h('span', null, error),
+              h('button', { type: 'button', onClick: props.onRetry }, t('results.retry')),
+            )
+          : null,
         view && view.stale
           ? h(
               'div',
@@ -3361,20 +3552,37 @@ window.__ModuleLoader__.load({
             )
           : null,
         pending
-          ? h('div', { className: 'ds-skeleton', 'aria-hidden': 'true' }, h('div', { className: 'ds-skel' }), h('div', { className: 'ds-skel' }), h('div', { className: 'ds-skel short' }), h('div', { className: 'ds-skel' }))
+          ? h(
+              'div',
+              { className: 'ds-skeleton', 'aria-hidden': 'true' },
+              h('div', { className: 'ds-skel' }),
+              h('div', { className: 'ds-skel' }),
+              h('div', { className: 'ds-skel short' }),
+              h('div', { className: 'ds-skel' }),
+            )
           : !view
             ? null
-            : view.items.length === 0
+            : items.length === 0
               ? h(
                   'div',
                   { className: 'ds-deck-empty' },
                   h('div', { className: 'ds-empty-icon' }, h(SearchIcon, { size: 24 })),
                   h('h3', null, t('results.empty')),
                   h('p', null, t('results.emptyHint')),
+                  longCta ? h('p', null, t('long.emptyHint')) : null,
+                  longCta,
                 )
               : h(
                   'div',
-                  { className: 'ds-deck-scroll' },
+                  {
+                    className: 'ds-deck-scroll',
+                    onScroll: (event) => {
+                      const node = event.currentTarget
+                      if (remaining <= 0) return
+                      if (node.scrollTop + node.clientHeight < node.scrollHeight - 240) return
+                      goMore()
+                    },
+                  },
                   groups.map((group) =>
                     h(
                       'div',
@@ -3408,17 +3616,23 @@ window.__ModuleLoader__.load({
                             'div',
                             { className: 'ds-result-top' },
                             h('span', { className: 'ds-kind', style: { '--k': kindColor(item.kind) } }, kindLabel(t, item.kind)),
+                            item.long ? h('span', { className: 'ds-badge is-long' }, t('long')) : null,
                             item.toolName ? h('span', { className: 'ds-toolname' }, item.toolName) : null,
                             item.turn ? h('span', { className: 'ds-turn' }, t('result.turn', { turn: item.turn })) : null,
                             h('span', { className: 'ds-time', title: new Date(item.time).toLocaleString() }, relativeTime(t, item.time)),
                           ),
-                          h('div', { className: 'ds-snippet' }, h(Highlight, { text: item.snippet, query: data.query })),
+                          h('div', { className: 'ds-snippet' }, h(Highlight, { text: item.snippet, query: view.query })),
                           item.files && item.files.length
                             ? h(
                                 'div',
                                 { className: 'ds-files' },
                                 item.files.slice(0, 3).map((file, index) =>
-                                  h('span', { key: index, className: 'ds-file-chip' }, h(FileIcon, { size: 10 }), file.name || basename(file.path)),
+                                  h(
+                                    'span',
+                                    { key: index, className: 'ds-file-chip' },
+                                    h(FileIcon, { size: 10 }),
+                                    file.name || basename(file.path),
+                                  ),
                                 ),
                               )
                             : null,
@@ -3426,9 +3640,17 @@ window.__ModuleLoader__.load({
                       ),
                     ),
                   ),
-                  data.truncated
-                    ? h('div', { className: 'ds-truncated' }, t('results.truncated', { limit: data.limit }))
-                    : null,
+                  h(
+                    'div',
+                    { className: 'ds-deck-foot' },
+                    remaining > 0
+                      ? h('button', { type: 'button', className: 'ds-more', onClick: goMore }, t('deck.more', { count: remaining }))
+                      : null,
+                    view.truncated && remaining <= 0
+                      ? h('div', { className: 'ds-truncated', style: { flex: '1 1 auto' } }, t('results.truncated', { limit: view.limit }))
+                      : null,
+                  ),
+                  longCta,
                 ),
       )
     }

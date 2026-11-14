@@ -22,7 +22,7 @@ const STATE_VERSION = 1
 // docs without them and could alias two blocks.
 // 3: the index is a manifest plus one gzip shard per session, so a live
 // update rewrites a few hundred KB instead of the whole corpus.
-const INDEX_VERSION = 3
+const INDEX_VERSION = 4
 const TITLE_CACHE_MS = 30_000
 // Background reindexing of a streaming session is a CPU furnace; searches
 // still read it fresh, but automatic tracking may lag a few seconds.
@@ -48,6 +48,18 @@ const MAX_THREADS = 8
 // Spawning workers only pays off once the matching pass is worth splitting.
 const WORKER_MIN_DOCS = 1500
 const MAX_QUERY_LENGTH = 300
+// Lazy indexing: a search answers from what is already indexed and lets the
+// rest arrive one session per tick, never blocking the panel on a cold corpus.
+const SEARCH_BUDGET_MS = 200
+const WARM_TICK_MS = 24
+// Nothing runs in the background while nobody is looking at the panel.
+const PANEL_IDLE_MS = 120_000
+const PERSIST_DEBOUNCE_MS = 30_000
+// A block longer than this keeps only its head in the ordinary index; the rest
+// lives in the long-document index and is searched on demand.
+const HEAD_CHUNKS = 4
+const LONG_MIN_CHARS = CHUNK_SIZE * HEAD_CHUNKS
+const MAX_QUERY_CACHE = 12
 const MAX_HISTORY = 12
 // Saved views are an LRU cache of ID snapshots, not an archive.
 const MAX_SAVED = 50
@@ -57,7 +69,6 @@ export const inject = ['sessionQuery', 'connection']
 export function apply(ctx) {
   const store = new StateStore()
   const index = new SearchIndex(ctx, store)
-  void index.ensureReady()
   ctx.effect(
     () =>
       ctx.connection.fetch.register({
@@ -90,20 +101,51 @@ async function handleRequest(index, store, request) {
     }
     const action = (body && body.action) || url.searchParams.get('action') || 'search'
     await store.load()
+    index.touch()
 
+    if (action === 'boot') {
+      // Never block the panel on the index: loading 26 shards takes a few
+      // hundred milliseconds and the reader should see the window first. The
+      // first request is what starts bootstrap, so DSH startup stays free.
+      void index.ensureReady()
+      index.setPanelOpen(true)
+      return json({ ok: true, index: index.status(), state: store.publicState(), workspaces: index.workspaces() })
+    }
+    if (action === 'open') {
+      index.setPanelOpen(true)
+      return json({ ok: true, index: index.status() })
+    }
+    if (action === 'close') {
+      index.setPanelOpen(false)
+      return json({ ok: true })
+    }
+    if (action === 'workspaces') {
+      await index.ensureReady()
+      return json({ ok: true, workspaces: index.workspaces(), index: index.status() })
+    }
     if (action === 'sessions') {
       await index.ensureReady()
       const payload = await index.listSessions()
       return json({ ok: true, ...payload, index: index.status() })
     }
     if (action === 'status') {
+      // The Client polls this while the index loads, so it has to be the thing
+      // that starts the load.
+      void index.ensureReady()
       return json({ ok: true, index: index.status(), state: store.publicState() })
     }
     if (action === 'state') {
       return json({ ok: true, state: store.publicState(), index: index.status() })
     }
     if (action === 'index') {
-      index.startAll()
+      index.rebuild()
+      return json({ ok: true, index: index.status(), state: store.publicState() })
+    }
+    if (action === 'long') {
+      const op = String((body && body.op) || url.searchParams.get('op') || 'rebuild')
+      if (op === 'clear') await index.clearLong()
+      else if (op === 'auto') index.setAutoLong(body ? body.autoLong !== false : true)
+      else index.rebuildLong()
       return json({ ok: true, index: index.status(), state: store.publicState() })
     }
     if (action === 'clearIndex') {
@@ -165,7 +207,9 @@ async function handleRequest(index, store, request) {
       return json({
         ok: true,
         ...materialized,
+        // How long *this* click took, next to the original search cost.
         tookMs: Date.now() - started,
+        restoredMs: Date.now() - started,
         cached: true,
         stale: index.isSavedStale(saved),
         savedId: id,
@@ -188,8 +232,8 @@ async function handleRequest(index, store, request) {
     const searchRequest = parseSearchRequest(url.searchParams)
     const started = Date.now()
     const exact = searchRequest.preload ? null : store.matchSaved(searchRequest)
-    if (exact && exact.revision === store.state.revision) {
-      const materialized = index.resolveSaved(exact)
+    if (exact) {
+      const materialized = index.resolveSaved(exact, searchRequest)
       if (materialized) {
         // Memory hit: this returns before the scan starts, so there is nothing
         // left for an AbortController to cancel.
@@ -197,6 +241,7 @@ async function handleRequest(index, store, request) {
           ok: true,
           ...materialized,
           tookMs: Date.now() - started,
+          restoredMs: Date.now() - started,
           cached: true,
           stale: index.isSavedStale(exact),
           savedId: exact.id,
@@ -205,8 +250,34 @@ async function handleRequest(index, store, request) {
         })
       }
     }
+    // 计算后置: the same query was already answered under a wider filter set.
+    // Re-filtering that snapshot is what keeps a filter tweak from paying for a
+    // whole-corpus scan.
+    const related = searchRequest.preload ? null : store.findRelatedSaved(searchRequest)
+    if (related) {
+      const narrowed = index.resolveSaved(related, searchRequest)
+      if (narrowed) {
+        return json({
+          ok: true,
+          ...narrowed,
+          tookMs: Date.now() - started,
+          restoredMs: Date.now() - started,
+          cached: true,
+          narrowedFrom: related.id,
+          savedId: null,
+          stale: index.isSavedStale(related),
+          history: store.state.history,
+          index: index.status(),
+        })
+      }
+    }
     const payload = await index.search(searchRequest)
-    const saved = searchRequest.preload ? null : store.recordSearch(searchRequest, payload, index.snapshotSeqs())
+    // A partial page (indexing still in flight) must not be remembered as the
+    // answer to this query: the next open would replay fewer hits.
+    const saved =
+      searchRequest.preload || searchRequest.auto || payload.pending > 0 || payload.long === true
+        ? null
+        : store.recordSearch(searchRequest, payload, index.snapshotSeqs())
     if (saved) {
       for (const droppedId of store.droppedIds || []) index.dropResolved(droppedId)
       await store.saveStateNow()
@@ -230,13 +301,15 @@ async function handleRequest(index, store, request) {
  * The Client's own name for this exact request. The Host only echoes it, so a
  * page can never be shown under chips that describe another filter set.
  */
-function canonicalSignature({ q, scope, types, exts, sort }) {
+function canonicalSignature({ q, scope, workspace, types, exts, sort, long }) {
   return JSON.stringify([
     String(q || ''),
     scope || 'all',
+    workspace || '',
     [...(types || [])].slice().sort(),
     [...(exts || [])].slice().sort(),
     sort || 'relevance',
+    long === true || long === '1' ? 1 : 0,
   ])
 }
 
@@ -257,6 +330,11 @@ function parseSearchRequest(params) {
   ].slice(0, 12)
   const rawSort = params.get('sort')
   const sort = rawSort === 'time-asc' ? 'time-asc' : rawSort === 'time' ? 'time' : 'relevance'
+  // Workspace is the session's cwd: one exact string, never a prefix.
+  const workspace = (params.get('workspace') ?? '').trim().slice(0, 400)
+  const long = params.get('long') === '1'
+  // A filter tweak re-runs the query; it must not create a history row.
+  const auto = params.get('auto') === '1'
   // A speculative preload may ask for the complete snapshot; ordinary
   // requests stay capped so one query cannot flood the Client.
   const preload = params.get('preload') === '1'
@@ -270,16 +348,20 @@ function parseSearchRequest(params) {
     ? Math.min(MAX_THREADS, Math.max(1, requestedThreads))
     : 2
   const resolvedTypes = types.length > 0 ? types : [...ALL_TYPES]
+  const resolvedScope = scope === 'all' || scope === '' ? null : scope
   return {
     q,
-    scope: scope === 'all' || scope === '' ? null : scope,
+    scope: resolvedScope,
+    workspace,
+    long,
+    auto,
     types: resolvedTypes,
     exts,
     sort,
     limit,
     threads,
     preload,
-    sig: sig || canonicalSignature({ q, scope: scope === 'all' || scope === '' ? null : scope, types: resolvedTypes, exts, sort }),
+    sig: sig || canonicalSignature({ q, scope: resolvedScope, workspace, types: resolvedTypes, exts, sort, long }),
   }
 }
 
@@ -318,7 +400,242 @@ class SearchIndex {
     this.titleVersion = 0
     this.activeSearches = 0
     this.corpusCache = null
-    this.ready = this.bootstrap()
+    // Lazy indexing state: nothing is read until the panel is opened or the
+    // user's own session emits an event.
+    this.openClients = 0
+    this.lastPanelAt = 0
+    this.warming = false
+    this.warmState = { running: false, done: 0, total: 0 }
+    this.attemptAt = new Map()
+    this.longCache = new Map()
+    this.queryCache = new Map()
+    this.bootstrapDone = false
+    this.longDocs = 0
+    this.longSessions = 0
+    // Nothing is read at plugin activation: DSH startup must pay zero cost for
+    // a search plugin nobody has opened yet. The first request starts bootstrap.
+    this.ready = null
+  }
+
+  /** The panel is open: start filling the index in the background. */
+  setPanelOpen(open) {
+    this.openClients = open ? this.openClients + 1 : Math.max(0, this.openClients - 1)
+    if (open) this.lastPanelAt = Date.now()
+    if (this.openClients > 0) this.startWarm()
+  }
+
+  /** Any request from the panel proves somebody is still looking. */
+  touch() {
+    if (this.openClients > 0) this.lastPanelAt = Date.now()
+  }
+
+  panelActive() {
+    if (this.openClients <= 0) return false
+    // A closed window cannot send 'close': stop after a couple of idle minutes.
+    if (Date.now() - this.lastPanelAt > PANEL_IDLE_MS) return false
+    return true
+  }
+
+  /** Distinct working directories, newest session first. */
+  workspaces() {
+    const byCwd = new Map()
+    for (const record of this.records) {
+      const cwd = record.header.cwd ?? null
+      if (!cwd) continue
+      let bucket = byCwd.get(cwd)
+      if (!bucket) {
+        bucket = { cwd, sessions: 0, newest: 0 }
+        byCwd.set(cwd, bucket)
+      }
+      bucket.sessions += 1
+      const created = Number(record.header.createdAt) || 0
+      if (created > bucket.newest) bucket.newest = created
+    }
+    return [...byCwd.values()].sort((left, right) => right.newest - left.newest)
+  }
+
+  /** Fresh means "no read needed for this request". */
+  surfaceState(record) {
+    const cached = this.surfaces.get(record.header.id)
+    if (!cached) return 'missing'
+    if (cached.error) return Date.now() < Number(cached.retryAt || 0) ? 'fresh' : 'stale'
+    if (!record.live) return 'fresh'
+    const live = this.optionalSessions()?.get(record.header.id)
+    if (!live) return 'fresh'
+    const liveSeq = Number(live.seq)
+    if (Number.isFinite(liveSeq) && cached.seq === liveSeq) return 'fresh'
+    return 'stale'
+  }
+
+  /**
+   * Sessions that have never been read. A live session that merely grew is
+   * "stale", not pending: counting it would keep the Client polling forever.
+   */
+  pendingSessions() {
+    let pending = 0
+    for (const record of this.records) {
+      if (this.surfaceState(record) === 'missing') pending += 1
+    }
+    return pending
+  }
+
+  /**
+   * Fill the index one session per tick. It stops the moment nobody is looking
+   * or a search is waiting, so it can never compete with the user.
+   */
+  startWarm() {
+    if (this.warming) return
+    if (!this.store.state.autoIndex) return
+    if (!this.panelActive()) return
+    this.warming = true
+    this.warmState = { running: true, done: 0, total: this.records.length, startedAt: Date.now() }
+    const step = async () => {
+      try {
+        if (!this.panelActive() || !this.store.state.autoIndex) {
+          this.warming = false
+          this.warmState = { ...this.warmState, running: false }
+          this.schedulePersist()
+          return
+        }
+        if (this.activeSearches > 0) {
+          setTimeout(step, 120)
+          return
+        }
+        const record = this.nextWarmRecord()
+        if (!record) {
+          this.warming = false
+          this.warmState = { ...this.warmState, running: false, done: this.records.length }
+          this.schedulePersist()
+          return
+        }
+        this.attemptAt.set(record.header.id, Date.now())
+        await this.ensureSurface(record)
+        this.warmState.done += 1
+        setTimeout(step, WARM_TICK_MS)
+      } catch {
+        this.warming = false
+        this.warmState = { ...this.warmState, running: false }
+      }
+    }
+    setTimeout(step, 0)
+  }
+
+  nextWarmRecord() {
+    // Newest first: the session the reader is most likely to search for is
+    // indexed before a year-old one.
+    const now = Date.now()
+    for (const record of this.records) {
+      if (this.surfaceState(record) === 'fresh') continue
+      const tried = this.attemptAt.get(record.header.id) || 0
+      if (now - tried < 5_000) continue
+      return record
+    }
+    return null
+  }
+
+  /** Index everything, whatever the panel state: an explicit rebuild. */
+  rebuild(options = {}) {
+    if (!this.bootstrapDone) {
+      void this.ensureReady().then(() => this.rebuild(options))
+      return this.status()
+    }
+    if (this.warming || this.job?.running) return this.status()
+    if (options.long === true) this.setAutoLong(true)
+    this.warming = true
+    this.warmState = { running: true, done: 0, total: this.records.length, startedAt: Date.now() }
+    this.job = { running: true, done: 0, total: this.records.length }
+    const step = async () => {
+      try {
+        const record = this.nextWarmRecord()
+        if (!record) {
+          this.warming = false
+          this.job = null
+          this.warmState = { ...this.warmState, running: false, done: this.records.length }
+          this.schedulePersist()
+          return
+        }
+        // An explicit rebuild ignores the live-session cooldown.
+        this.surfaces.delete(record.header.id)
+        this.attemptAt.set(record.header.id, Date.now())
+        await this.ensureSurface(record)
+        if (this.job) this.job.done += 1
+        this.warmState.done += 1
+        setTimeout(step, this.activeSearches > 0 ? 250 : WARM_TICK_MS)
+      } catch {
+        this.warming = false
+        this.job = null
+      }
+    }
+    setTimeout(step, 0)
+    return this.status()
+  }
+
+  setAutoLong(value) {
+    this.store.setAutoLong(value !== false)
+  }
+
+  async rebuildLong() {
+    // Long documents are derived from the session text, so a long rebuild is a
+    // full re-read that rewrites the long shards. The ordinary index is rebuilt
+    // with it, but it stays an independent control.
+    this.longCache.clear()
+    for (const entry of this.surfaces.values()) {
+      delete entry.longDocs
+      delete entry.longTagged
+      entry.longCount = 0
+    }
+    this.longDocs = 0
+    this.longSessions = 0
+    this.forceLong = true
+    this.store.setAutoLong(true)
+    this.rebuild()
+    return this.status()
+  }
+
+  async clearLong() {
+    this.longCache.clear()
+    const dirty = new Set()
+    for (const [id, entry] of this.surfaces) {
+      const count = Number(entry.longCount) || 0
+      if (count === 0 && !Array.isArray(entry.longDocs)) continue
+      delete entry.longDocs
+      delete entry.longTagged
+      entry.longCount = 0
+      dirty.add(id)
+    }
+    this.longDocs = 0
+    this.longSessions = 0
+    await this.store.clearLongIndex()
+    // The manifest must stop advertising chunks whose shards are gone.
+    await this.store.saveIndex(this.surfaces, dirty, new Set())
+    for (const id of dirty) this.dirtySessions.delete(id)
+  }
+
+  /**
+   * Long chunks of one session, loaded from their own shard on first use. They
+   * are the part of a long block that the ordinary index deliberately drops.
+   */
+  async longDocsOf(sessionId) {
+    const entry = this.surfaces.get(sessionId)
+    if (!entry) return null
+    if (entry.longTagged) return entry.longTagged
+    let docs = null
+    if (Array.isArray(entry.longDocs) && entry.longDocs.length > 0) docs = entry.longDocs
+    else if (Number(entry.longCount) > 0) docs = await this.store.loadLongShard(sessionId)
+    if (!docs || docs.length === 0) return null
+    const tagged = docs.map((doc) => ({
+      id: docKey(sessionId, doc),
+      kind: doc.kind,
+      subtype: doc.subtype,
+      text: doc.text,
+      ext: doc.ext || null,
+      sessionId,
+      long: true,
+    }))
+    entry.longTagged = tagged
+    while (this.longCache.size >= 24) this.longCache.delete(this.longCache.keys().next().value)
+    this.longCache.set(sessionId, tagged)
+    return tagged
   }
 
   async bootstrap() {
@@ -334,31 +651,53 @@ class SearchIndex {
       }
       await this.reloadSessions(true)
       this.pruneRemoved()
-      if (this.store.state.autoIndex && this.surfaces.size < this.records.length) {
-        setTimeout(() => {
-          if (!this.job?.running) this.startAll()
-        }, 1200)
-      }
+      this.countLong()
     } catch (error) {
       this.warnings += 1
       await this.store.logError('bootstrap', error)
+    } finally {
+      this.bootstrapDone = true
+      // The panel may already be waiting for a workspace list that needed the
+      // session table this bootstrap just loaded.
+      if (this.panelActive()) this.startWarm()
     }
   }
 
   async ensureReady() {
+    if (!this.ready) this.ready = this.bootstrap()
     await this.ready
+  }
+
+  countLong() {
+    let docs = 0
+    let sessions = 0
+    for (const entry of this.surfaces.values()) {
+      const count = Number(entry.longCount) || 0
+      if (count <= 0) continue
+      sessions += 1
+      docs += count
+    }
+    this.longDocs = docs
+    this.longSessions = sessions
   }
 
   status() {
     return {
-      ready: true,
-      running: this.job?.running === true,
-      done: this.job?.done ?? 0,
-      total: this.job?.total ?? this.records.length,
+      ready: this.bootstrapDone === true,
+      running: this.warming === true || this.job?.running === true,
+      done: this.warmState?.done ?? 0,
+      total: this.warmState?.total ?? this.records.length,
+      pending: this.bootstrapDone ? this.pendingSessions() : 0,
       sessions: this.surfaces.size,
       docs: this.totalDocs,
-      revision: this.store.state.revision,
+      longDocs: this.longDocs,
+      longSessions: this.longSessions,
+      autoLong: this.store.state.autoLong !== false,
+      workspaces: this.records.length === 0 ? 0 : this.workspaces().length,
+      totalSessions: this.records.length,
+      warnings: this.warnings,
       autoIndex: this.store.state.autoIndex,
+      revision: this.store.state.revision,
     }
   }
 
@@ -387,6 +726,8 @@ class SearchIndex {
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null
       if (this.persisting) return this.schedulePersist()
+      // Writing shards while a search is running is what made the panel hitch.
+      if (this.activeSearches > 0) return this.schedulePersist()
       const dirty = new Set(this.dirtySessions)
       const removed = new Set(this.removedSessions)
       this.dirtySessions.clear()
@@ -398,31 +739,18 @@ class SearchIndex {
           this.persisting = null
           if (this.dirtySessions.size > 0 || this.removedSessions.size > 0) this.schedulePersist()
         })
-    }, 15_000)
+    }, PERSIST_DEBOUNCE_MS)
   }
 
+  /** Index every session and wait for it: tests and explicit full rebuilds. */
   async startAll() {
-    if (this.job?.running) return this.status()
-    this.job = { running: true, done: 0, total: this.records.length }
-    void (async () => {
-      try {
-        await this.ensureReady()
-        if (this.job) this.job.total = this.records.length
-        // The thread setting also controls how many sessions are read in
-        // parallel; surface building is I/O + parse, not the worker pool.
-        const concurrency = Math.max(1, Math.min(MAX_THREADS, Number(this.store.state.prefs && this.store.state.prefs.threads) || 3))
-        await mapLimit(this.records, concurrency, async (record) => {
-          await this.ensureSurface(record)
-          if (this.job) this.job.done += 1
-        })
-      } finally {
-        if (this.job) {
-          this.job.running = false
-          this.job.done = this.job.total
-        }
-        this.schedulePersist()
-      }
-    })()
+    await this.ensureReady()
+    for (const record of this.records) {
+      this.attemptAt.delete(record.header.id)
+      await this.ensureSurface(record)
+    }
+    this.countLong()
+    this.schedulePersist()
     return this.status()
   }
 
@@ -440,6 +768,7 @@ class SearchIndex {
 
   async flushDirty() {
     if (this.dirty.size === 0) return
+    await this.ensureReady()
     // Background re-indexing competes with the search the user is waiting for.
     if (this.activeSearches > 0) {
       this.dirtyTimer = setTimeout(() => {
@@ -458,10 +787,17 @@ class SearchIndex {
     for (const id of ids) {
       const record = this.recordById.get(id)
       if (!record) continue
-      if (record.live) {
-        const cached = this.surfaces.get(id)
-        if (cached && Date.now() - (cached.builtAt || 0) < LIVE_REBUILD_MS) continue
+      const cached = this.surfaces.get(id)
+      // A session that was never indexed is cheap and worth reading at once, so
+      // its own event still makes it searchable. Re-reading an already indexed
+      // session is the furnace: only while the panel is open, and at most once
+      // per LIVE_REBUILD_MS.
+      if (!cached) {
+        await this.ensureSurface(record)
+        continue
       }
+      if (!this.panelActive()) continue
+      if (record.live && Date.now() - (cached.builtAt || 0) < LIVE_REBUILD_MS) continue
       await this.ensureSurface(record)
     }
     this.schedulePersist()
@@ -475,6 +811,10 @@ class SearchIndex {
     }
     this.surfaces.clear()
     this.totalDocs = 0
+    this.longDocs = 0
+    this.longSessions = 0
+    this.longCache.clear()
+    this.queryCache.clear()
     this.corpusVersion += 1
     this.corpusCache = null
     this.dirty.clear()
@@ -574,16 +914,16 @@ class SearchIndex {
     return cached?.fallbackTitle || null
   }
 
-  async search({ q, scope, types, exts, sort, limit, threads, sig }) {
+  async search(request) {
     this.activeSearches += 1
     try {
-      return await this.searchOnce({ q, scope, types, exts, sort, limit, threads, sig })
+      return await this.searchOnce(request)
     } finally {
       this.activeSearches -= 1
     }
   }
 
-  async searchOnce({ q, scope, types, exts, sort, limit, threads, sig }) {
+  async searchOnce({ q, scope, workspace, long, types, exts, sort, limit, threads, sig }) {
     const started = Date.now()
     const ensureStarted = Date.now()
     await this.ensureReady()
@@ -606,46 +946,114 @@ class SearchIndex {
       // "this session has no matches".
       scopeMissing = !exact
     }
+    // Workspace is the session's cwd: narrowing sessions first means the scan
+    // never touches another workspace's documents.
+    if (workspace) targets = targets.filter((record) => (record.header.cwd ?? '') === workspace)
 
     const warningsBefore = this.warnings
     const requestedThreads = Math.max(1, Math.min(MAX_THREADS, Number(threads) || 2))
     const surfaceStarted = Date.now()
-    await mapLimit(targets, requestedThreads, (record) => this.ensureSurface(record, { reuseLive: true }))
+    // Lazy: only never-indexed sessions are read inside this request, and only a
+    // handful of them. Everything else is answered from the index as it is and
+    // completed by the background pass, which the Client polls.
+    let budget = SEARCH_BUDGET_MS
+    let inlineReads = 0
+    for (const record of targets) {
+      if (this.surfaceState(record) !== 'missing') continue
+      if (inlineReads >= 6 || budget <= 0) break
+      const before = Date.now()
+      await this.ensureSurface(record)
+      budget -= Date.now() - before
+      inlineReads += 1
+    }
     const surfaceMs = Date.now() - surfaceStarted
+
+    let pending = 0
+    for (const record of targets) {
+      if (this.surfaceState(record) === 'missing') pending += 1
+    }
 
     const wanted = new Set(types)
     const qLower = q.toLowerCase()
     const extSet = new Set(exts)
-    const fileOnly = extSet.size > 0 && types.some((kind) => FILE_TYPES.has(kind))
+    const hasFile = types.some((kind) => FILE_TYPES.has(kind))
+    const hasText = types.some((kind) => !FILE_TYPES.has(kind))
+    const fileOnly = extSet.size > 0 && hasFile
 
     // One flat corpus for both the worker pool and the inline fallback, built
-    // once per index change instead of on every keystroke's search.
+    // once per index change instead of on every keystroke's search. It is split
+    // by class so a files-only search never walks the text corpus.
     const corpus = this.corpus()
     const docMeta = corpus.meta
-    let docs = corpus.docs
-    if (scope) {
+    let docs = hasFile && hasText ? corpus.all : hasFile ? corpus.files : corpus.text
+    if (scope || workspace) {
       const allowed = new Set(targets.map((record) => record.header.id))
       docs = docs.filter((doc) => allowed.has(doc.sessionId))
     }
 
     const matchStarted = Date.now()
-    const request = { types: [...wanted], exts: [...extSet], fileOnly, qLower }
-    let matches = null
-    let mode = 'inline'
-    if (requestedThreads > 1 && docs.length >= WORKER_MIN_DOCS && this.pool) {
-      matches = await this.pool.search(request, requestedThreads, docs, this.corpusVersion)
-      mode = matches ? 'worker' : 'inline-fallback'
-    } else if (requestedThreads > 1) {
-      mode = 'inline-small'
+    let longList = null
+    let longMeta = null
+    let longMs = 0
+    if (long) {
+      const longStarted = Date.now()
+      const ids = (scope || workspace ? targets : this.records).map((record) => record.header.id)
+      longList = []
+      longMeta = new Map()
+      for (const id of ids) {
+        const docsOfSession = await this.longDocsOf(id)
+        if (!docsOfSession) continue
+        const record = this.recordById.get(id)
+        if (!record) continue
+        const sessionTitle = this.titleOf(id) ?? id
+        for (const doc of docsOfSession) {
+          longList.push(doc)
+          longMeta.set(doc.id, { sessionId: id, record, sessionTitle, doc: { ...doc, chunk: doc.chunk ?? 0 } })
+        }
+      }
+      longMs = Date.now() - longStarted
+      if (longList.length > 0) docs = docs.concat(longList)
     }
-    if (!matches) matches = scanDocs(docs, request)
+
+    // 计算后置: the raw match list of one query is what a filter change reuses.
+    // It is keyed by the corpus version, so any index change invalidates it.
+    const cacheKey = JSON.stringify([qLower, scope || '', workspace || '', long ? 1 : 0])
+    const cachedMatches = this.queryCache.get(cacheKey)
+    let matches
+    let mode = 'cache'
+    if (cachedMatches && cachedMatches.version === this.corpusVersion) {
+      matches = cachedMatches.matches
+    } else {
+      const scanRequest = { types: ALL_TYPES, exts: [], fileOnly: false, qLower }
+      matches = null
+      if (requestedThreads > 1 && docs.length >= WORKER_MIN_DOCS && this.pool) {
+        matches = await this.pool.search(scanRequest, requestedThreads, docs, this.corpusVersion)
+        mode = matches ? 'worker' : 'inline-fallback'
+      } else if (requestedThreads > 1) {
+        mode = 'inline-small'
+      } else {
+        mode = 'inline'
+      }
+      if (!matches) matches = scanDocs(docs, scanRequest)
+      this.rememberMatches(cacheKey, matches)
+    }
+    // Type and extension filtering happens on the match list, never on the
+    // corpus: changing a filter on a cached query costs no scan at all.
+    const filtered = []
+    for (const match of matches) {
+      const entry = docMeta.get(match.id) || (longMeta ? longMeta.get(match.id) : undefined)
+      if (!entry) continue
+      if (!wanted.has(entry.doc.kind)) continue
+      if (fileOnly && (!entry.doc.ext || !extSet.has(entry.doc.ext))) continue
+      filtered.push(match)
+    }
     const matchMs = Date.now() - matchStarted
 
     const matched = []
     const perSession = new Map()
     const scanned = docs.length
-    for (const match of matches) {
-      const meta = docMeta.get(match.id)
+    for (const match of filtered) {
+      const meta = docMeta.get(match.id) || (longMeta ? longMeta.get(match.id) : undefined)
       if (!meta) continue
       const item = makeResultItem({
         sessionId: meta.sessionId,
@@ -697,11 +1105,17 @@ class SearchIndex {
     return {
       query: q,
       scope: scope ?? 'all',
+      workspace: workspace || '',
+      long: long === true,
       types,
       exts,
       sort,
-      signature: sig || canonicalSignature({ q, scope, types, exts, sort }),
+      signature: sig || canonicalSignature({ q, scope, workspace, types, exts, sort, long }),
       scopeMissing,
+      // Sessions this page could not read yet; the Client keeps polling until
+      // this reaches zero, adding the hits that arrive meanwhile.
+      pending,
+      longMs,
       truncatedDocs,
       total: matched.length,
       scanned,
@@ -745,9 +1159,27 @@ class SearchIndex {
       const built = buildSurfaceDocs(snapshot, record)
       built.seq = liveSeq ?? (snapshot.capturedThroughSeq == null ? undefined : Number(snapshot.capturedThroughSeq))
       built.builtAt = Date.now()
-      if (cached) this.totalDocs -= cached.docs.length
+      // Long chunks are kept apart from the ordinary documents and written to
+      // their own shard, so the main index stays small and its scan stays fast.
+      const keepLong = this.store.state.autoLong !== false || this.forceLong === true
+      const longDocs = keepLong && Array.isArray(built.longDocs) ? built.longDocs : []
+      built.longDocs = longDocs
+      built.longCount = longDocs.length
+      if (cached) {
+        this.totalDocs -= cached.docs.length
+        const previousLong = Number(cached.longCount) || 0
+        if (previousLong > 0) {
+          this.longDocs -= previousLong
+          this.longSessions -= 1
+        }
+      }
       this.surfaces.set(id, built)
       this.totalDocs += built.docs.length
+      if (longDocs.length > 0) {
+        this.longDocs += longDocs.length
+        this.longSessions += 1
+      }
+      this.longCache.delete(id)
       // A streaming session grows constantly; bumping the revision for that
       // made every saved result look stale. Only structural changes count.
       if (!cached || !record.live) this.store.bumpRevision()
@@ -766,6 +1198,8 @@ class SearchIndex {
       }
       const empty = {
         docs: [],
+        longDocs: [],
+        longCount: 0,
         fallbackTitle: null,
         seq: liveSeq,
         builtAt: Date.now(),
@@ -827,7 +1261,11 @@ class SearchIndex {
     if (this.corpusCache && this.corpusCacheVersion === this.corpusVersion && this.corpusCacheTitles === this.titleVersion) {
       return this.corpusCache
     }
-    const docs = []
+    // Split by class: a files-only search never walks the text corpus, and a
+    // workspace-scoped one only intersects the sessions it was given.
+    const all = []
+    const files = []
+    const text = []
     const meta = new Map()
     for (const [sessionId, entry] of this.surfaces) {
       const record = this.recordById.get(sessionId)
@@ -835,11 +1273,22 @@ class SearchIndex {
       const sessionTitle = this.titleOf(sessionId) ?? sessionId
       for (const doc of entry.docs) {
         const id = docKey(sessionId, doc)
-        docs.push({ id, kind: doc.kind, subtype: doc.subtype, text: doc.text, ext: doc.ext || null, sessionId })
+        const item = {
+          id,
+          kind: doc.kind,
+          subtype: doc.subtype,
+          text: doc.text,
+          ext: doc.ext || null,
+          sessionId,
+          long: doc.long === true,
+        }
+        all.push(item)
+        if (FILE_TYPES.has(doc.kind)) files.push(item)
+        else text.push(item)
         meta.set(id, { sessionId, record, sessionTitle, doc })
       }
     }
-    this.corpusCache = { docs, meta }
+    this.corpusCache = { all, files, text, docs: all, meta }
     this.corpusCacheVersion = this.corpusVersion
     this.corpusCacheTitles = this.titleVersion
     return this.corpusCache
@@ -851,33 +1300,82 @@ class SearchIndex {
   }
 
   /**
+   * Keep the raw match list of a query. A filter change reuses it, which is the
+   * difference between a filter tweak costing a scan or costing a few
+   * hundred array lookups.
+   */
+  rememberMatches(key, matches) {
+    if (!Array.isArray(matches) || matches.length > 40_000) return
+    const previous = this.queryCache.get(key)
+    if (previous) this.queryCacheSize -= previous.matches.length
+    this.queryCache.delete(key)
+    this.queryCache.set(key, { version: this.corpusVersion, matches })
+    this.queryCacheSize = (this.queryCacheSize || 0) + matches.length
+    while (this.queryCache.size > MAX_QUERY_CACHE || (this.queryCacheSize || 0) > 120_000) {
+      const oldest = this.queryCache.keys().next().value
+      if (oldest === undefined) break
+      this.queryCacheSize -= this.queryCache.get(oldest)?.matches.length ?? 0
+      this.queryCache.delete(oldest)
+    }
+  }
+
+  /**
    * Rebuild a saved page from its ID snapshot without persisting any text.
    * Returns null when the snapshot can no longer be resolved (a doc vanished),
    * so the caller can fall back to a real search.
    */
-  resolveSaved(saved) {
+  /**
+   * Rebuild a saved page from its ID snapshot without persisting any text.
+   *
+   * `request` carries the filters the reader is asking for now. They are applied
+   * to the snapshot, never to the corpus: narrowing a filter on a query that was
+   * already answered is what keeps it from paying for a full scan ("计算后置").
+   * Returns null when the snapshot can no longer be resolved (a doc vanished),
+   * so the caller can fall back to a real search.
+   */
+  resolveSaved(saved, request = {}) {
     if (!saved) return null
     if (!Array.isArray(saved.ids)) return saved.payload ?? null
     // Views saved before the address scheme changed cannot be resolved; let the
     // caller re-search instead of showing a wrong page.
     if (saved.idVersion !== 2) return null
-    const cached = this.resolvedCache && this.resolvedCache.get(saved.id)
+    // Filters are applied only when the caller states them. Without them the
+    // snapshot is resolved as it was recorded (its rows are already the answer).
+    const savedTypes = Array.isArray(saved.request?.types) && saved.request.types.length > 0 ? saved.request.types : null
+    const filterTypes = Array.isArray(request.types) && request.types.length > 0
+    const types = filterTypes ? request.types : savedTypes
+    const wanted = filterTypes ? new Set(types) : null
+    const filterExts = Array.isArray(request.exts) && request.exts.length > 0
+    const exts = filterExts ? request.exts : Array.isArray(saved.request?.exts) ? saved.request.exts : []
+    const extSet = new Set(exts)
+    const fileOnly = filterExts && types !== null && types.some((kind) => FILE_TYPES.has(kind))
+    const workspace = String(request.workspace || '')
+    const filterWorkspace = workspace !== ''
+    // A workspace filter can only narrow a page that was not already scoped.
+    const savedWorkspace = String(saved.request?.workspace || '')
+    if (workspace && savedWorkspace && workspace !== savedWorkspace) return null
+    const sort = request.sort || saved.request?.sort || 'relevance'
+    const cacheKey = [saved.id, wanted ? [...wanted].sort().join(',') : '*', [...extSet].sort().join(','), workspace, sort].join('|')
+    const cached = this.resolvedCache && this.resolvedCache.get(cacheKey)
     if (cached && cached.version === this.corpusVersion) return cached.payload
     const map = this.docIndex()
     const q = String(saved.request?.q || '')
     const qLower = q.toLowerCase()
+    const cap = Number(saved.meta?.limit) || SEARCH_LIMIT
     const items = []
-    let dropped = 0
+    let total = 0
     for (const id of saved.ids) {
       const entry = map.get(id)
+      // The document changed under the snapshot: the page is unusable and the
+      // caller must re-search rather than show a wrong set of rows.
       if (!entry) return null
+      if (wanted && !wanted.has(entry.doc.kind)) continue
+      if (fileOnly && (!entry.doc.ext || !extSet.has(entry.doc.ext))) continue
+      if (filterWorkspace && (entry.record.header.cwd ?? '') !== workspace) continue
       const matchIndex = qLower ? entry.doc.text.toLowerCase().indexOf(qLower) : 0
-      if (qLower && matchIndex === -1) {
-        // The document changed under the snapshot. The page is still usable,
-        // but it must not keep advertising the old total.
-        dropped += 1
-        continue
-      }
+      if (qLower && matchIndex === -1) continue
+      total += 1
+      if (items.length >= cap) continue
       items.push(
         makeResultItem({
           sessionId: entry.sessionId,
@@ -891,21 +1389,51 @@ class SearchIndex {
         }),
       )
     }
-    const sort = saved.request?.sort || 'relevance'
     items.sort((a, b) => {
       if (sort === 'time') return b.time - a.time || b.score - a.score
       if (sort === 'time-asc') return a.time - b.time || b.score - a.score
       return b.score - a.score || b.time - a.time
     })
     const meta = saved.meta || {}
+    const buckets = new Map()
+    for (const item of items) {
+      let bucket = buckets.get(item.sessionId)
+      if (!bucket) {
+        bucket = {
+          id: item.sessionId,
+          title: item.sessionTitle,
+          cwd: item.cwd,
+          createdAt: item.createdAt,
+          live: this.isLiveSession(item.sessionId),
+          count: 0,
+          best: 0,
+        }
+        buckets.set(item.sessionId, bucket)
+      }
+      bucket.count += 1
+      if (item.score > bucket.best) bucket.best = item.score
+    }
+    const sessions = [...buckets.values()].sort((left, right) => right.best - left.best)
     const payload = {
       query: q,
       scope: saved.request?.scope ?? 'all',
-      types: Array.isArray(saved.request?.types) ? saved.request.types : [],
-      exts: Array.isArray(saved.request?.exts) ? saved.request.exts : [],
+      workspace,
+      long: false,
+      types: wanted ? [...wanted] : types || ALL_TYPES,
+      exts: [...extSet],
       sort,
-      // The signature of the request that produced this page, not of the click.
-      signature: saved.signature || canonicalSignature({ q, scope: saved.request?.scope, types: saved.request?.types, exts: saved.request?.exts, sort }),
+      // The signature of the request the reader is asking for now, so the page
+      // can only be rendered under chips that describe it.
+      signature:
+        request.sig ||
+        canonicalSignature({
+          q,
+          scope: saved.request?.scope,
+          workspace,
+          types: wanted ? [...wanted] : types || ALL_TYPES,
+          exts: [...extSet],
+          sort,
+        }),
       cached: true,
       // What the original search cost, kept so a cached page never reports the
       // time a re-search would have taken.
@@ -919,13 +1447,18 @@ class SearchIndex {
         mode: meta.mode || 'materialized',
       },
       scopeMissing: false,
+      pending: 0,
+      longMs: 0,
       truncatedDocs: Number(meta.truncatedDocs) || 0,
-      total: dropped > 0 ? items.length : (meta.total ?? items.length),
-      scanned: meta.scanned ?? 0,
-      limit: meta.limit ?? items.length,
-      truncated: meta.truncated === true,
+      total,
+      snapshotSize: saved.ids.length,
+      totalExact: saved.meta?.truncated !== true,
+      narrowed: items.length !== saved.ids.length || String(request.sig || '') !== String(saved.signature || ''),
+      scanned: 0,
+      limit: cap,
+      truncated: saved.ids.length > cap,
       items,
-      sessions: Array.isArray(meta.sessions) ? meta.sessions : [],
+      sessions,
       threads: 1,
       mode: 'materialized',
       surfaceMs: 0,
@@ -937,11 +1470,12 @@ class SearchIndex {
       indexedSessions: this.surfaces.size,
       indexedDocs: this.totalDocs,
       warnings: 0,
-      tookMs: 1,
+      tookMs: 0,
+      restoredMs: 0,
     }
     if (!this.resolvedCache) this.resolvedCache = new Map()
-    this.resolvedCache.delete(saved.id)
-    this.resolvedCache.set(saved.id, { version: this.corpusVersion, payload })
+    this.resolvedCache.delete(cacheKey)
+    this.resolvedCache.set(cacheKey, { version: this.corpusVersion, payload })
     this.pruneResolved()
     return payload
   }
@@ -951,10 +1485,17 @@ class SearchIndex {
     while (this.resolvedCache.size > MAX_SAVED) this.resolvedCache.delete(this.resolvedCache.keys().next().value)
   }
 
-  /** Drop one materialized page from the in-memory cache. */
+  /** Drop one saved page and every filtered variant of it. */
   dropResolved(id) {
     if (!this.resolvedCache) return
-    if (id) this.resolvedCache.delete(id)
+    if (!id) {
+      this.resolvedCache.clear()
+      return
+    }
+    const prefix = String(id) + '|'
+    for (const key of [...this.resolvedCache.keys()]) {
+      if (key === String(id) || key.startsWith(prefix)) this.resolvedCache.delete(key)
+    }
   }
 
   dropAllResolved() {
@@ -966,6 +1507,10 @@ class SearchIndex {
     if (this.dirtyTimer) clearTimeout(this.dirtyTimer)
     this.persistTimer = null
     this.dirtyTimer = null
+    this.warming = false
+    this.openClients = 0
+    this.longCache.clear()
+    this.queryCache.clear()
     this.dropAllResolved()
     void this.pool?.dispose()
   }
@@ -981,6 +1526,9 @@ class SearchIndex {
 
 function buildSurfaceDocs(snapshot, record) {
   const docs = []
+  // Everything past the head of a long block. Stored in its own shard and only
+  // searched by an explicit long-document search.
+  const longDocs = []
   const seenFiles = new Set()
   // Several files can come from one block (arguments, Presented text, an
   // image group); fileIndex keeps their anchors distinct.
@@ -1007,12 +1555,13 @@ function buildSurfaceDocs(snapshot, record) {
     if (!clean.trim()) return
     const capped = clean.length > CHUNK_SIZE * MAX_CHUNKS ? clean.slice(0, CHUNK_SIZE * MAX_CHUNKS) : clean
     if (capped.length < clean.length) docs.truncated = true
+    const isLong = clean.length > LONG_MIN_CHARS
     let offset = 0
     let chunk = 0
     do {
       const piece = capped.slice(offset, offset + CHUNK_SIZE)
       if (!piece.trim()) break
-      docs.push({
+      const doc = {
         kind,
         subtype,
         text: piece,
@@ -1027,7 +1576,13 @@ function buildSurfaceDocs(snapshot, record) {
         seatIndex: Number.isInteger(extra.seatIndex) ? extra.seatIndex : null,
         blockKind: extra.blockKind ?? null,
         chunk,
-      })
+      }
+      if (isLong) {
+        doc.long = true
+        docs.truncated = true
+      }
+      if (!isLong || chunk < HEAD_CHUNKS) docs.push(doc)
+      else longDocs.push(doc)
       chunk += 1
       offset += CHUNK_SIZE - CHUNK_OVERLAP
     } while (offset < capped.length && chunk < MAX_CHUNKS)
@@ -1047,6 +1602,8 @@ function buildSurfaceDocs(snapshot, record) {
     const key = `${turnKey}\u0000${kind}\u0000${displayName}\u0000${path}`
     if (seenFiles.has(key)) return
     seenFiles.add(key)
+    // The name comes first and on its own line: it is what the reader types,
+    // and it keeps the snippet readable.
     const text = [displayName, path].filter(Boolean).join('\n')
     const slot = `${Number(event.seq)}:${extra.blockIndex ?? 'x'}:${kind}`
     const fileIndex = fileCounters.get(slot) ?? 0
@@ -1068,6 +1625,7 @@ function buildSurfaceDocs(snapshot, record) {
       fileIndex,
       chunk: 0,
       ext: ext || null,
+      name: displayName || `file.${ext}`,
       files: [{ name: displayName || `file.${ext}`, path: path || null }],
     })
   }
@@ -1188,6 +1746,7 @@ function buildSurfaceDocs(snapshot, record) {
 
   return {
     docs,
+    longDocs,
     fallbackTitle,
     truncated: docs.truncated === true,
     seq: snapshot.capturedThroughSeq == null ? undefined : Number(snapshot.capturedThroughSeq),
@@ -1196,17 +1755,30 @@ function buildSurfaceDocs(snapshot, record) {
 }
 
 function collectPresentedFiles(text, event, pushFile, extra = {}) {
-  const pattern = /(?:^|\n)\s*Presented\s+([^\n]+)/g
+  // Two shapes name a produced file: the "Presented <path>" line and a markdown
+  // link in the answer. Both are user-visible file names, so both are indexed.
+  const presented = /(?:^|\n)\s*Presented\s+([^\n]+)/g
   let match
-  while ((match = pattern.exec(text)) !== null) {
+  while ((match = presented.exec(text)) !== null) {
     const path = match[1].trim()
-    if (!path) continue
+    if (!path || !looksLikeFilePath(path)) continue
+    pushFile('outputFiles', { name: basename(path), path }, event, extra)
+  }
+  if (text.length > 400_000) return
+  const linked = /\[[^\]\n]{1,120}\]\(([^)\n]{1,400})\)/g
+  while ((match = linked.exec(text)) !== null) {
+    const path = match[1].trim()
+    if (!path || !looksLikeFilePath(path)) continue
     pushFile('outputFiles', { name: basename(path), path }, event, extra)
   }
 }
 
 function producesFiles(name) {
-  return /present|write|edit|save|export|create|render|convert|download|generate|copy|move|rename/i.test(name)
+  // Broad on purpose: a tool that writes a screenshot is as much a file
+  // producer as one called write_file, and a missed path is unsearchable.
+  return /present|write|edit|save|export|create|render|convert|download|generate|copy|move|rename|screenshot|screen|capture|snap|shot|send|upload|attach|image|img|draw|plot|chart|paint|photo|video|audio|record|merge|split|compress|zip|pack|build|dump|print|report/i.test(
+    name,
+  )
 }
 
 function extractFilePaths(rawArgs) {
@@ -1309,6 +1881,8 @@ function makeResultItem({ sessionId, sessionTitle, record, doc, matchIndex, quer
     },
     snippet: makeSnippet(doc, matchIndex, queryLength),
     score,
+    name: doc.name ?? (doc.files && doc.files[0] ? doc.files[0].name : null),
+    long: doc.long === true,
     files: doc.files ?? null,
   }
 }
@@ -1329,10 +1903,33 @@ async function mapLimit(items, limit, mapper) {
   return results
 }
 
-// History is keyed by the query alone: the same query with different filters is
-// one row that keeps the newest result.
-function queryId(query) {
-  return createHash('sha1').update(JSON.stringify([String(query || '').trim()])).digest('hex').slice(0, 16)
+// History is keyed by the whole filter set, not just the words: two searches
+// for the same text with different filters are two entries, each of which keeps
+// its own filters and its own materialized page.
+function queryId(request) {
+  const value = typeof request === 'string' ? { q: request } : request || {}
+  const key = [
+    String(value.q || '').trim(),
+    String(value.scope ?? 'all'),
+    String(value.workspace ?? ''),
+    [...(Array.isArray(value.types) ? value.types : [])].sort().join(','),
+    [...(Array.isArray(value.exts) ? value.exts : [])].sort().join(','),
+    String(value.sort ?? 'relevance'),
+    value.long === true ? '1' : '0',
+  ].join('\u0000')
+  return createHash('sha1').update(key).digest('hex').slice(0, 16)
+}
+
+function requestOf(item) {
+  return {
+    q: String(item?.query || '').trim(),
+    scope: item?.scope ?? 'all',
+    workspace: item?.workspace ?? '',
+    types: Array.isArray(item?.types) ? item.types : [],
+    exts: Array.isArray(item?.exts) ? item.exts : [],
+    sort: item?.sort ?? 'relevance',
+    long: item?.long === true,
+  }
 }
 
 class StateStore {
@@ -1345,6 +1942,9 @@ class StateStore {
     // their own file so a live update rewrites one session, not 16 MB.
     this.indexFile = path.join(this.dir, 'index.json.gz')
     this.indexDir = path.join(this.dir, 'index')
+    // Long documents live in their own directory: they can be deleted and
+    // rebuilt without touching the ordinary index.
+    this.longDir = path.join(this.dir, 'long')
     this.state = defaultState()
     this.loadPromise = null
     this.stateTimer = null
@@ -1369,12 +1969,12 @@ class StateStore {
         // Older builds keyed the id by query+scope, so the same query could sit
         // in the file twice with different ids. Re-key by query on load.
         for (const item of entries) {
-          const query = String(item?.query || '').trim()
-          if (!query) continue
-          const id = queryId(query)
+          const request = requestOf(item)
+          if (!request.q) continue
+          const id = queryId(request)
           if (seen.has(id)) continue
           seen.add(id)
-          history.push({ ...item, id, query })
+          history.push({ ...item, ...request, id })
           const saved = legacySaved[item.id] ?? legacySaved[id]
           if (saved) savedSearches[id] = saved
           if (history.length >= MAX_HISTORY) break
@@ -1414,15 +2014,16 @@ class StateStore {
     const seen = new Set()
     const history = []
     for (const item of this.state.history) {
-      const query = String(item?.query || '').trim()
-      if (!query || seen.has(query)) continue
-      seen.add(query)
+      const id = String(item?.id || '')
+      if (!id || seen.has(id)) continue
+      seen.add(id)
       history.push(item)
     }
     return {
       prefs: this.state.prefs,
       history,
       autoIndex: this.state.autoIndex,
+      autoLong: this.state.autoLong !== false,
       revision: this.state.revision,
     }
   }
@@ -1438,6 +2039,11 @@ class StateStore {
     this.saveStateSoon()
   }
 
+  setAutoLong(value) {
+    this.state.autoLong = value !== false
+    this.saveStateSoon()
+  }
+
   bumpRevision() {
     this.state.revision = (Number(this.state.revision) || 0) + 1
     this.saveStateSoon()
@@ -1445,24 +2051,27 @@ class StateStore {
 
   recordSearch(request, payload, seqs) {
     const query = String(request.q || '').trim()
-    const id = queryId(query)
+    const types = Array.isArray(request.types) ? request.types : []
+    const exts = Array.isArray(request.exts) ? request.exts : []
+    // "Everything, unfiltered" is not a search worth a history row.
+    if (!query && !request.workspace && exts.length === 0 && types.length === ALL_TYPES.length && request.long !== true) {
+      return null
+    }
+    const id = queryId(request)
     const entry = {
       id,
       snapshotId: id,
       query,
       scope: request.scope ?? 'all',
-      types: request.types,
-      exts: request.exts,
+      workspace: request.workspace ?? '',
+      types,
+      exts,
       sort: request.sort,
+      long: request.long === true,
       at: Date.now(),
       count: payload.total,
     }
-    this.state.history = [
-      entry,
-      ...this.state.history.filter(
-        (item) => item.id !== id && String(item.query || '').trim() !== query,
-      ),
-    ].slice(0, MAX_HISTORY)
+    this.state.history = [entry, ...this.state.history.filter((item) => item.id !== id)].slice(0, MAX_HISTORY)
     const before = new Set(Object.keys(this.state.savedSearches))
     // Materialized view: only the result IDs, the per-session sequence
     // snapshot, and the page metadata. No document text is persisted.
@@ -1537,7 +2146,7 @@ class StateStore {
   }
 
   matchSaved(request) {
-    const id = queryId(request.q)
+    const id = queryId(request)
     const saved = this.state.savedSearches[id]
     if (!saved || !saved.request) return null
     const same = (left, right) => JSON.stringify(left) === JSON.stringify(right)
@@ -1547,32 +2156,49 @@ class StateStore {
     // A saved page belongs to one scope. Returning the all-sessions page for a
     // one-session search is how the session filter used to disappear.
     if (String(saved.request.scope ?? 'all') !== String(request.scope ?? 'all')) return null
+    if (String(saved.request.workspace ?? '') !== String(request.workspace ?? '')) return null
+    if ((saved.request.long === true) !== (request.long === true)) return null
     if (request.sig && saved.signature && request.sig !== saved.signature) return null
     return { id, ...saved }
   }
 
+  /**
+   * The newest saved page for the same words under a filter set that contains
+   * the one asked for now. Narrowing its rows is a filter change, not a scan.
+   */
+  findRelatedSaved(request) {
+    const query = String(request.q || '').trim()
+    if (!query) return null
+    const wantedTypes = Array.isArray(request.types) ? request.types : []
+    const wantedExts = Array.isArray(request.exts) ? request.exts : []
+    let best = null
+    for (const [id, saved] of Object.entries(this.state.savedSearches)) {
+      if (!saved || !saved.request || !Array.isArray(saved.ids)) continue
+      if (String(saved.request.q || '').trim() !== query) continue
+      if (String(saved.request.scope ?? 'all') !== String(request.scope ?? 'all')) continue
+      const savedWorkspace = String(saved.request.workspace ?? '')
+      if (savedWorkspace && savedWorkspace !== String(request.workspace ?? '')) continue
+      if (saved.request.long !== true && request.long === true) continue
+      const savedTypes = Array.isArray(saved.request.types) ? saved.request.types : []
+      if (savedTypes.length === 0) continue
+      if (!wantedTypes.every((kind) => savedTypes.includes(kind))) continue
+      const savedExts = Array.isArray(saved.request.exts) ? saved.request.exts : []
+      if (wantedExts.length > 0 && !wantedExts.every((ext) => savedExts.includes(ext))) continue
+      if (wantedExts.length === 0 && savedExts.length > 0) continue
+      if (!best || Number(saved.at) > Number(best.at)) best = { id, ...saved }
+    }
+    return best
+  }
+
   deleteSaved(id) {
+    // One row is one filter set: deleting it must never take a sibling row of
+    // the same words with other filters with it.
     const target = this.state.history.find((item) => item.id === id)
-    const query = target ? String(target.query || '').trim() : ''
     const snapshotIds = new Set([id])
     if (target && target.snapshotId) snapshotIds.add(target.snapshotId)
-    this.state.history = this.state.history.filter((item) => {
-      if (item.id === id) return false
-      if (query !== '' && String(item.query || '').trim() === query) {
-        if (item.snapshotId) snapshotIds.add(item.snapshotId)
-        return false
-      }
-      return true
-    })
+    this.state.history = this.state.history.filter((item) => item.id !== id)
     for (const snapshotId of snapshotIds) delete this.state.savedSearches[snapshotId]
     this.droppedIds = [...snapshotIds]
-    if (query) {
-      for (const key of Object.keys(this.state.savedSearches)) {
-        if (String(this.state.savedSearches[key]?.request?.q || '').trim() === query) {
-          delete this.state.savedSearches[key]
-        }
-      }
-    }
     this.saveStateSoon()
   }
 
@@ -1609,6 +2235,28 @@ class StateStore {
   sessionIndexFile(sessionId) {
     const safe = encodeURIComponent(String(sessionId)).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180)
     return path.join(this.indexDir, safe + '.json.gz')
+  }
+
+  sessionLongFile(sessionId) {
+    const safe = encodeURIComponent(String(sessionId)).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180)
+    return path.join(this.longDir, safe + '.json.gz')
+  }
+
+  async loadLongShard(sessionId) {
+    try {
+      const parsed = JSON.parse(zlib.gunzipSync(await fs.readFile(this.sessionLongFile(sessionId))))
+      return Array.isArray(parsed?.docs) ? parsed.docs : null
+    } catch {
+      return null
+    }
+  }
+
+  async clearLongIndex() {
+    try {
+      await fs.rm(this.longDir, { recursive: true, force: true })
+    } catch {
+      /* already gone */
+    }
   }
 
   async loadIndex() {
@@ -1653,6 +2301,7 @@ class StateStore {
         builtAt: entry.builtAt ?? null,
         truncated: entry.truncated === true,
         docCount: entry.docs?.length ?? 0,
+        longCount: Number(entry.longCount) || 0,
       }
     }
     this.writeChain = this.writeChain
@@ -1667,6 +2316,14 @@ class StateStore {
           const shard = { version: INDEX_VERSION, id, savedAt: Date.now(), docs: entry.docs, fallbackTitle: entry.fallbackTitle }
           const bytes = await gzip(Buffer.from(JSON.stringify(shard)))
           await writeAtomic(this.sessionIndexFile(id), bytes)
+          const longDocs = Array.isArray(entry.longDocs) ? entry.longDocs : []
+          if (longDocs.length > 0) {
+            await fs.mkdir(this.longDir, { recursive: true })
+            const longShard = { version: INDEX_VERSION, id, savedAt: Date.now(), docs: longDocs }
+            await writeAtomic(this.sessionLongFile(id), await gzip(Buffer.from(JSON.stringify(longShard))))
+          } else {
+            await fs.rm(this.sessionLongFile(id), { force: true }).catch(() => {})
+          }
         }
         for (const id of removed) {
           await fs.rm(this.sessionIndexFile(id), { force: true }).catch(() => {})
@@ -1718,6 +2375,7 @@ function defaultState() {
     history: [],
     savedSearches: {},
     autoIndex: true,
+    autoLong: true,
     revision: 0,
   }
 }
@@ -1741,9 +2399,15 @@ export const __test = {
   buildSurfaceDocs,
   makeResultItem,
   parseSearchRequest,
+  canonicalSignature,
+  queryId,
+  requestOf,
   extractFilePaths,
   makeSnippet,
+  ALL_TYPES_FOR_TEST: ALL_TYPES,
   CHUNK_SIZE,
   CHUNK_OVERLAP,
+  HEAD_CHUNKS,
+  LONG_MIN_CHARS,
   MAX_CHUNKS,
 }
