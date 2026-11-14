@@ -78,7 +78,9 @@ function addressOf(item) {
   if (Number.isFinite(anchor.turn) && Number.isFinite(anchor.step) && (item.kind === 'modelText' || item.kind === 'reasoning')) {
     return '14:assistant-step' + anchor.turn + ':' + anchor.step
   }
-  if (item.kind === 'userText' || item.kind === 'inputFiles') return anchor.messageId ? '4:user' + anchor.messageId : null
+  if (item.kind === 'userText' || item.kind === 'inputFiles' || item.kind === 'context') {
+    return anchor.messageId ? '4:user' + anchor.messageId : null
+  }
   if (Number.isFinite(anchor.turn) && Number.isFinite(anchor.step)) return '14:assistant-step' + anchor.turn + ':' + anchor.step
   return null
 }

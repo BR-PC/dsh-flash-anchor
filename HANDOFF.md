@@ -1,9 +1,33 @@
 # FlashAnchor 交接文档
 
 > 更新时间：2026-11-15
-> 版本：**1.8.0**（已安装；Host 半改动必须重启 DSH Desktop 生效）
+> 版本：**1.8.2**（已安装；Host 半改动必须重启 DSH Desktop 生效）
 > 仓库：https://github.com/BR-PC/dsh-flash-anchor
 > 实现：DeepSeek-V4.1-Flash-1017（AI agent）；产品设计/测试/验收：BR-PC
+
+## 0. 1.8.2：上下文注入不再算“输入正文”
+
+**现象**：按「输入正文」过滤搜 `bug`，命中里出现 `# 上下文注入 · skill-catalog` 这类记录；
+它们的 `type` 是 `user/message`、`role` 是 `user`，看起来就是用户消息。
+
+**真因**：DSH 把注入内容（技能目录、运行时快照、时间、压缩检查点、审批提示…）也存成
+`user/message`，区别在 `data.source.kind`：
+
+| source.kind | 是否用户输入 | 索引类型（1.8.2） |
+| --- | --- | --- |
+| `user` / `steering` | 是 | `userText` |
+| `runtime-context` / `skill-catalog` / `time-context` / `ptc-mode` / `compact-checkpoint` / `tool-jobs` / `model-selection` / `repeat-tool-reminder` / `user-approval` | 否 | **`context`（新类型）** |
+| 无 `source`（旧会话） | 是 | `userText` |
+
+- 新类型 `context` 与其它类型平级，可单独勾选/取消；默认不勾选（老用户的存档偏好里没有它）。
+- `system/message`、`developer/message` 仍然不索引（系统提示词只是噪音）。
+- 块级锚点保持不变：`blockKind` 仍是 `text`，只是 `kind` 不同，所以定位链路零改动。
+- 回归测试：`test-v17.mjs` 新增「injected context is not user input」（断言 kind、标题不被注入污染）。
+
+**同版 UI**
+- 面板整体改为不透明（`--ds-alpha: 100%`），不再透出下层会话文字。
+- 「最近搜索」改为卡片（底色 + 边框 + 圆角），关键词 13.5px、筛选胶囊 10.5px。
+- 目标类型新增「上下文注入」分组（仅“全部”模式下显示）。
 
 ## 0. 1.8.0：定位修复 + 日志收集
 

@@ -42,5 +42,5 @@ store.setLogCollection(true)
 const cleared = await store.clearDiag()
 assert.equal(cleared.bytes, 0, 'clear must empty the log')
 
-await fs.rm(home, { recursive: true, force: true })
+await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 console.log('flash-anchor diagnostics log: ok')

@@ -41,7 +41,14 @@ const ALL_TYPES = Object.freeze([
   'outputFiles',
   'userText',
   'inputFiles',
+  // Injected context (skill catalog, runtime snapshot, time, compaction
+  // checkpoint, approval prompts) is a "user/message" event with a non-user
+  // source. It is searchable, but it is not something the user typed.
+  'context',
 ])
+// source.kind values that really are the human: everything else a
+// "user/message" carries is injected context.
+const USER_SOURCES = new Set(['user', 'steering'])
 const FILE_TYPES = new Set(['outputFiles', 'inputFiles'])
 const SEARCH_LIMIT = 400
 const PRELOAD_LIMIT = 2000
@@ -1699,6 +1706,10 @@ function buildSurfaceDocs(snapshot, record) {
     const message = event?.data?.message ?? (event?.data?.role ? event.data : undefined)
     if (!message || !Array.isArray(message.content)) continue
     const role = message.role
+    const sourceKind =
+      message.source && typeof message.source === 'object' ? String(message.source.kind || '') : ''
+    // A user/message with a non-user source is context the harness injected.
+    const injected = sourceKind !== '' && !USER_SOURCES.has(sourceKind)
     // A rendered seat is not one message: the answer rail splits reasoning
     // from text, and every tool block becomes its own card. seatIndex is the
     // ordinal inside that rendered seat, so the client can pick the third
@@ -1716,6 +1727,17 @@ function buildSurfaceDocs(snapshot, record) {
         const text = typeof block.text === 'string' ? block.text : ''
         if (!text) continue
         if (role === 'user') {
+          if (injected) {
+            // The DOM block is still a text block in a user-style row; only the
+            // search classification differs, so the anchor stays the same.
+            pushDoc('context', 'text', text, event, {
+              messageId: message.id,
+              blockIndex,
+              seatIndex: nextSeatIndex('context'),
+              blockKind: 'text',
+            })
+            continue
+          }
           if (!fallbackTitle) fallbackTitle = makeFallbackTitle(text)
           pushDoc('userText', 'text', text, event, {
             messageId: message.id,
@@ -2152,6 +2174,9 @@ class StateStore {
   }
 
   async logInfo() {
+    // Flush pending appends first: the panel reads the size right after a jump,
+    // and a delete/rmdir racing an open handle fails on Windows.
+    await this.diagChained.catch(() => {})
     let bytes = 0
     let updated = null
     try {
@@ -2165,6 +2190,7 @@ class StateStore {
   }
 
   async clearDiag() {
+    await this.diagChained.catch(() => {})
     try {
       await fs.rm(this.diagFile, { force: true })
     } catch {

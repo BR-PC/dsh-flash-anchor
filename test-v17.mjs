@@ -141,6 +141,23 @@ await check('lazy status', async () => {
   assert.ok(status.ready === true)
 })
 
+
+await check('injected context is not user input', async () => {
+  const snapshot = {
+    capturedThroughSeq: 2,
+    events: [
+      { seq: 1, time: now, data: { turn: 1, message: { role: 'user', id: 'u-ctx', source: { kind: 'skill-catalog' }, content: [{ type: 'text', text: 'SKILL CATALOG injected' }] } } },
+      { seq: 2, time: now, data: { turn: 1, message: { role: 'user', id: 'u-real', source: { kind: 'user' }, content: [{ type: 'text', text: 'a real question' }] } } },
+    ],
+  }
+  const built = __test.buildSurfaceDocs(snapshot, { header: { id: 's-ctx', cwd: null } })
+  const injected = built.docs.find((doc) => doc.text.includes('SKILL CATALOG'))
+  const real = built.docs.find((doc) => doc.text.includes('a real question'))
+  assert.equal(injected && injected.kind, 'context', 'injected context was classified as ' + (injected && injected.kind))
+  assert.equal(real && real.kind, 'userText', 'a real prompt was classified as ' + (real && real.kind))
+  assert.equal(built.fallbackTitle, 'a real question', 'the context injection became the session title')
+})
+
 await fs.rm(home, { recursive: true, force: true })
 if (failures.length > 0) {
   console.log('v1.7 contracts: ' + failures.length + ' FAILURES')

@@ -1,6 +1,6 @@
 # FlashAnchor / 闪电锚点
 
-[![Release](https://img.shields.io/badge/release-v1.8.1-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
+[![Release](https://img.shields.io/badge/release-v1.8.2-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
 [![License](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-DSH%20Desktop%20%C2%B7%20DSH%20Web-6366f1)](https://github.com/BR-PC/dsh-flash-anchor)
 [![CI](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml/badge.svg)](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml)
@@ -22,7 +22,8 @@
 | [v1.7.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.7.0) | **卡顿根治**（去掉全屏模糊与无限动画、启动不再全量索引、面板关闭即停索引、结果分页渲染）、历史按筛选集独立成条且耗时如实、计算后置复用缓存、文件名可搜、边索引边出结果、仅筛选也能搜、长文独立索引与长文搜索、工作区筛选 |
 | [v1.7.1](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.7.1) | 修复 1.7.0 的回归：重开恢复结果、卡在“正在检索”、打开历史记录改写筛选条件、重建索引无进度、未索引时工作区为空；去掉模糊设置项、目标类型改勾选、侧边栏字号加大、索引解压改异步并行（320ms → 226ms 且不阻塞），详见[v1.7.0...v1.7.1](https://github.com/BR-PC/dsh-flash-anchor/compare/v1.7.0...v1.7.1) |
 | [v1.8.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.8.0) | **定位修复**：消息节点 key 失效（会话被压缩/重新编号）时，改为按命中文本在本轮/全量已挂载行里定位，不再报“未能定位”；**日志收集**：侧边栏新增开关与日志地址，逐条记录搜索、定位、错误；`diagnostics.log` 结构化 JSONL |
-| **[v1.8.1](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.8.1)** | 历史记录：搜索后立即出现新条目（索引未完成也记行，只是不留快照）、同一筛选更新同一条、左侧关键词 + 右侧筛选胶囊自适应布局、新增“清空全部”（同时删除关联结果页）；CI 增加历史契约与诊断日志测试 |
+| [v1.8.1](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.8.1)** | 历史记录：搜索后立即出现新条目（索引未完成也记行，只是不留快照）、同一筛选更新同一条、左侧关键词 + 右侧筛选胶囊自适应布局、新增“清空全部”（同时删除关联结果页）；CI 增加历史契约与诊断日志测试 |
+| **[v1.8.2](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.8.2)** | 修正类型分类：技能目录、运行时/时间快照、压缩检查点、审批提示等**上下文注入**不再算“输入正文”，独立为「上下文注入」；面板改为完全不透明；最近搜索改为卡片并加大字号 |
 
 ## 功能
 

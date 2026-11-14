@@ -28,7 +28,13 @@ window.__ModuleLoader__.load({
 
     const MODEL_TYPES = ['reasoning', 'modelText', 'tools', 'outputFiles']
     const USER_TYPES = ['userText', 'inputFiles']
-    const ALL_TYPES = [...MODEL_TYPES, ...USER_TYPES]
+    // Injected context (skill catalog, runtime/time snapshots, compaction
+    // checkpoints, approval prompts) is stored as a user/message with a
+    // non-user source; it is its own kind so it never reads as user input.
+    const CONTEXT_TYPES = ['context']
+    // Literal on purpose: the contract tests extract this constant by name, and a
+    // spread would drag its neighbours into their sandbox.
+    const ALL_TYPES = ['reasoning', 'modelText', 'tools', 'outputFiles', 'userText', 'inputFiles', 'context']
     const HISTORY_KEY = 'flash-anchor:history'
     const FILE_KINDS = new Set(['outputFiles', 'inputFiles'])
 
@@ -58,6 +64,7 @@ window.__ModuleLoader__.load({
       "object.model": "模型输出",
       "object.user": "用户输入",
       "object.all": "全部",
+      "object.context": "上下文注入",
       "target": "目标类型",
       "target.reasoning": "思维链",
       "target.modelText": "正文",
@@ -108,6 +115,7 @@ window.__ModuleLoader__.load({
       "kind.outputFiles": "输出文件",
       "kind.userText": "输入正文",
       "kind.inputFiles": "输入文件",
+      "kind.context": "上下文注入",
       "subtype.call": "调用",
       "subtype.result": "结果",
       "badge.model": "模型",
@@ -240,6 +248,7 @@ window.__ModuleLoader__.load({
       "object.model": "Model output",
       "object.user": "User input",
       "object.all": "Everything",
+      "object.context": "Injected context",
       "target": "Target types",
       "target.reasoning": "Reasoning",
       "target.modelText": "Answer text",
@@ -290,6 +299,7 @@ window.__ModuleLoader__.load({
       "kind.outputFiles": "Output file",
       "kind.userText": "Prompt",
       "kind.inputFiles": "Input file",
+      "kind.context": "Injected context",
       "subtype.call": "call",
       "subtype.result": "result",
       "badge.model": "Model",
@@ -483,11 +493,11 @@ window.__ModuleLoader__.load({
 .ds-hero-card{padding:14px 13px;border-radius:14px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:linear-gradient(150deg,color-mix(in srgb,var(--dsw-alias-bg-layer-2,#182030) 52%,transparent),color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 20%,transparent));box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 7%,transparent)}
 .ds-hero-card-top{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600}
 .ds-hero-card p{margin:6px 0 0;font-size:10.5px;line-height:1.55;color:var(--dsw-alias-label-secondary,#98a6bf)}
-.ds-history{display:flex;flex-direction:column;gap:7px}
+.ds-history{display:flex;flex-direction:column;gap:7px;padding:12px 14px;border-radius:14px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 26%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1,#10141c) 62%,transparent);box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 5%,transparent)}
 .ds-history-list{display:flex;flex-direction:column;gap:3px;max-height:240px;overflow:auto}
-.ds-history-chip{flex:1 1 auto;min-width:0;height:27px;padding:0 2px;border:0;background:transparent;color:var(--dsw-alias-label-primary,#e8ecf5);font:inherit;font-size:12px;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-history-chip{flex:1 1 auto;min-width:0;height:26px;padding:0 2px;border:0;background:transparent;color:var(--dsw-alias-label-primary,#e8ecf5);font:inherit;font-size:13.5px;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ds-history-chip:hover{color:var(--dsw-alias-brand-primary,#0ea5e9)}
-.ds-history-item{display:flex;align-items:center;gap:6px;width:100%;padding:2px 3px;border-radius:8px}
+.ds-history-item{display:flex;align-items:center;gap:8px;width:100%;padding:5px 6px;border-radius:9px}
 .ds-history-item:hover{background:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 9%,transparent)}
 .ds-history-remove{width:18px;height:18px;flex:none;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-secondary,#98a6bf);cursor:pointer}
 .ds-history-remove:hover{background:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 16%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b)}
@@ -587,7 +597,7 @@ window.__ModuleLoader__.load({
 .ds-select{width:100%;height:33px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 32%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);padding:0 8px;font:inherit;font-size:12.5px;outline:none;cursor:pointer}
 .ds-select:focus{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 65%,transparent)}
 .ds-history-meta{flex:0 1 auto;display:flex;align-items:center;gap:3px;min-width:0;max-width:58%;overflow:hidden}
-.ds-badge{display:inline-flex;align-items:center;height:17px;min-width:0;max-width:100%;padding:0 6px;border-radius:5px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#182030) 40%,transparent);font-size:9.5px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-badge{display:inline-flex;align-items:center;height:19px;min-width:0;max-width:100%;padding:0 7px;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#182030) 55%,transparent);font-size:10.5px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ds-badge.is-long{border-color:color-mix(in srgb,#a855f7 55%,transparent);color:#c084fc}
 .ds-badge.is-ws{border-color:color-mix(in srgb,#22d3ee 45%,transparent);color:#67e8f9}
 .ds-history-item{align-items:flex-start}
@@ -915,6 +925,8 @@ window.__ModuleLoader__.load({
           return ['user', 'steering', 'context', 'command', 'turn-trigger']
         case 'inputFiles':
           return ['user', 'steering', 'context', 'command', 'turn-trigger']
+        case 'context':
+          return ['context', 'user', 'steering', 'command', 'turn-trigger']
         case 'reasoning':
         case 'modelText':
           return ['assistant-step']
@@ -971,7 +983,7 @@ window.__ModuleLoader__.load({
       if (kind === 'outputFiles') {
         if (turn !== null && step !== null) return ASSISTANT_STEP_PREFIX + turn + ':' + step
       }
-      if (kind === 'userText' || kind === 'inputFiles') {
+      if (kind === 'userText' || kind === 'inputFiles' || kind === 'context') {
         const messageId = anchor.messageId ?? (target && target.messageId)
         if (messageId) return INPUT_MESSAGE_PREFIX + String(messageId)
       }
@@ -1938,6 +1950,7 @@ window.__ModuleLoader__.load({
 
     function objectTypes(mode) {
       if (mode === 'user') return USER_TYPES
+      if (mode === 'context') return CONTEXT_TYPES
       if (mode === 'all') return ALL_TYPES
       return MODEL_TYPES
     }
@@ -1952,6 +1965,7 @@ window.__ModuleLoader__.load({
       if (kind === 'tools') return '#f59e0b'
       if (kind === 'outputFiles') return '#34d399'
       if (kind === 'userText') return '#06b6d4'
+      if (kind === 'context') return '#94a3b8'
       if (kind === 'long') return '#a855f7'
       return '#2dd4bf'
     }
@@ -2963,11 +2977,9 @@ window.__ModuleLoader__.load({
         'div',
         {
           className: 'ds-root',
-          style: {
-            '--ds-blur': blur + 'px',
-            '--ds-alpha': alpha + '%',
-            '--ds-alpha-soft': Math.max(55, alpha - 6) + '%',
-          },
+          // Fully opaque: a translucent panel let the transcript bleed
+          // through and made the small type unreadable.
+          style: { '--ds-blur': '0px', '--ds-alpha': '100%', '--ds-alpha-soft': '98%' },
         },
         h('div', { className: 'ds-backdrop', 'aria-hidden': 'true', onMouseDown: onClose }),
         h(
@@ -3172,7 +3184,7 @@ window.__ModuleLoader__.load({
       }, [sessionsState.items, props.sessionFilter])
 
       const selected = sessionsState.items.find((item) => item.id === props.selectedSession)
-      const groups = props.objectMode === 'all' ? ['model', 'user'] : [props.objectMode]
+      const groups = props.objectMode === 'all' ? ['model', 'user', 'context'] : [props.objectMode]
       const workspaces = Array.isArray(props.workspaces) ? props.workspaces : []
 
       return h(
