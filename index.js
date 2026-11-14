@@ -178,6 +178,12 @@ async function handleRequest(index, store, request) {
       store.setPrefs(body && body.prefs)
       return json({ ok: true })
     }
+    if (action === 'clearHistory') {
+      const dropped = store.clearHistory()
+      for (const id of dropped) index.dropResolved(id)
+      await store.saveStateNow()
+      return json({ ok: true, state: store.publicState(), snapshots: store.snapshotCount() })
+    }
     if (action === 'deleteSaved') {
       const deletedId = body && body.id
       store.deleteSaved(deletedId)
@@ -314,10 +320,9 @@ async function handleRequest(index, store, request) {
     })
     // A partial page (indexing still in flight) must not be remembered as the
     // answer to this query: the next open would replay fewer hits.
+    // recordSearch decides whether the page is complete enough to snapshot.
     const saved =
-      searchRequest.preload || searchRequest.auto || payload.pending > 0 || payload.long === true
-        ? null
-        : store.recordSearch(searchRequest, payload, index.snapshotSeqs())
+      searchRequest.preload || searchRequest.auto ? null : store.recordSearch(searchRequest, payload, index.snapshotSeqs())
     if (saved) {
       for (const droppedId of store.droppedIds || []) index.dropResolved(droppedId)
       // Record asynchronously: the reader should not wait for a 42 kB write.
@@ -2196,6 +2201,15 @@ class StateStore {
       count: payload.total,
     }
     this.state.history = [entry, ...this.state.history.filter((item) => item.id !== id)].slice(0, MAX_HISTORY)
+    // A page that is still missing sessions (or a long-text page) is not the
+    // answer to this query. The row is still written — the reader must see the
+    // search they just made — but no snapshot is kept, so reopening it runs a
+    // real search instead of replaying a half page.
+    const complete = (Number(payload.pending) || 0) === 0 && payload.long !== true
+    if (!complete) {
+      this.saveStateSoon()
+      return entry
+    }
     const before = new Set(Object.keys(this.state.savedSearches))
     // Materialized view: only the result IDs, the per-session sequence
     // snapshot, and the page metadata. No document text is persisted.
@@ -2330,6 +2344,20 @@ class StateStore {
     this.droppedIds = Object.keys(this.state.savedSearches)
     this.state.savedSearches = {}
     this.saveStateSoon()
+  }
+
+  /** Drop every history row *and* the pages materialized for it. */
+  clearHistory() {
+    const dropped = new Set(Object.keys(this.state.savedSearches))
+    for (const item of this.state.history) {
+      if (item && item.id) dropped.add(item.id)
+      if (item && item.snapshotId) dropped.add(item.snapshotId)
+    }
+    this.state.history = []
+    this.state.savedSearches = {}
+    this.droppedIds = [...dropped]
+    this.saveStateSoon()
+    return [...dropped]
   }
 
   snapshotCount() {

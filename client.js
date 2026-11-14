@@ -200,6 +200,8 @@ window.__ModuleLoader__.load({
       "deck.snapshot": "历史快照",
       "need.filters": "请输入关键词，或至少选择一个筛选条件",
       "history.filters": "筛选",
+      "history.clear": "清空全部",
+      "history.clearConfirm": "清空全部搜索历史？同时删除它们缓存的搜索结果页（不影响索引）。",
       "log.title": "日志收集",
       "log.hint": "记录搜索、定位与错误的详细信息，供排查问题；关闭后不再写入。",
       "log.path": "日志地址",
@@ -380,6 +382,8 @@ window.__ModuleLoader__.load({
       "deck.snapshot": "History snapshot",
       "need.filters": "Type a keyword, or pick at least one filter",
       "history.filters": "Filters",
+      "history.clear": "Clear all",
+      "history.clearConfirm": "Clear all search history and the cached result pages kept for it? The index is untouched.",
       "log.title": "Log collection",
       "log.hint": "Records search, jump and error details for troubleshooting; nothing is written when off.",
       "log.path": "Log file",
@@ -480,9 +484,11 @@ window.__ModuleLoader__.load({
 .ds-hero-card-top{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600}
 .ds-hero-card p{margin:6px 0 0;font-size:10.5px;line-height:1.55;color:var(--dsw-alias-label-secondary,#98a6bf)}
 .ds-history{display:flex;flex-direction:column;gap:7px}
-.ds-history-list{display:flex;flex-wrap:wrap;gap:6px}
-.ds-history-chip{height:27px;padding:0 10px;border-radius:8px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 24%,transparent);color:var(--dsw-alias-label-secondary,#98a6bf);font:inherit;font-size:10.5px;cursor:pointer;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ds-history-item{display:inline-flex;align-items:center;gap:3px;max-width:100%}
+.ds-history-list{display:flex;flex-direction:column;gap:3px;max-height:240px;overflow:auto}
+.ds-history-chip{flex:1 1 auto;min-width:0;height:27px;padding:0 2px;border:0;background:transparent;color:var(--dsw-alias-label-primary,#e8ecf5);font:inherit;font-size:12px;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-history-chip:hover{color:var(--dsw-alias-brand-primary,#0ea5e9)}
+.ds-history-item{display:flex;align-items:center;gap:6px;width:100%;padding:2px 3px;border-radius:8px}
+.ds-history-item:hover{background:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 9%,transparent)}
 .ds-history-remove{width:18px;height:18px;flex:none;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-secondary,#98a6bf);cursor:pointer}
 .ds-history-remove:hover{background:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 16%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b)}
 .ds-history-chip:hover{color:var(--dsw-alias-label-primary,#e8ecf5);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 45%,transparent)}
@@ -580,8 +586,8 @@ window.__ModuleLoader__.load({
 @keyframes ds-progress{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .ds-select{width:100%;height:33px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 32%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);padding:0 8px;font:inherit;font-size:12.5px;outline:none;cursor:pointer}
 .ds-select:focus{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 65%,transparent)}
-.ds-history-meta{display:flex;align-items:center;gap:4px;margin-left:2px;flex-wrap:wrap}
-.ds-badge{display:inline-flex;align-items:center;height:16px;padding:0 5px;border-radius:5px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#182030) 40%,transparent);font-size:9px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap}
+.ds-history-meta{flex:0 1 auto;display:flex;align-items:center;gap:3px;min-width:0;max-width:58%;overflow:hidden}
+.ds-badge{display:inline-flex;align-items:center;height:17px;min-width:0;max-width:100%;padding:0 6px;border-radius:5px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#182030) 40%,transparent);font-size:9.5px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ds-badge.is-long{border-color:color-mix(in srgb,#a855f7 55%,transparent);color:#c084fc}
 .ds-badge.is-ws{border-color:color-mix(in srgb,#22d3ee 45%,transparent);color:#67e8f9}
 .ds-history-item{align-items:flex-start}
@@ -2843,6 +2849,21 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const clearAllHistory = async () => {
+        if (!window.confirm(t('history.clearConfirm'))) return
+        try {
+          const payload = await apiPost({ action: 'clearHistory' }, {})
+          setHistory(Array.isArray(payload.state?.history) ? payload.state.history : [])
+          setSavedId(null)
+          setViewSaved(null)
+          resultCache.payload = null
+          resultCache.savedId = null
+          searchCache.clear()
+        } catch {
+          showNotice(t('results.error'))
+        }
+      }
+
       const openItem = (item) => {
         try {
           if (!ctx.uiWorkspace || typeof ctx.uiWorkspace.openSession !== 'function') throw new Error('navigation unavailable')
@@ -3105,6 +3126,7 @@ window.__ModuleLoader__.load({
               history,
               onHistory: loadSaved,
               onDeleteHistory: deleteHistory,
+              onClearHistory: clearAllHistory,
               indexStatus,
             }),
             resultsOpen
@@ -3489,7 +3511,14 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'ds-history' },
-            h('div', { className: 'ds-label', style: { marginBottom: '2px' } }, h('span', null, t('history'))),
+            h(
+              'div',
+              { className: 'ds-label', style: { marginBottom: '2px' } },
+              h('span', null, t('history')),
+              rows.length > 0
+                ? h('button', { type: 'button', className: 'ds-label-action', onClick: props.onClearHistory }, t('history.clear'))
+                : null,
+            ),
             rows.length === 0
               ? h('div', { className: 'ds-empty-history' }, t('history.empty'))
               : h(

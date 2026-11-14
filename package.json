@@ -1,6 +1,6 @@
 {
   "name": "flash-anchor",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "private": true,
   "description": "FlashAnchor: fast, block-anchored full-text search across every DSH session — reasoning, tool calls, text, files, long documents and workspaces.",
   "type": "module",
