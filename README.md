@@ -1,6 +1,6 @@
 # FlashAnchor / 闪电锚点
 
-[![Release](https://img.shields.io/badge/release-v1.7.0-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
+[![Release](https://img.shields.io/badge/release-v1.7.1-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
 [![License](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-DSH%20Desktop%20%C2%B7%20DSH%20Web-6366f1)](https://github.com/BR-PC/dsh-flash-anchor)
 [![CI](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml/badge.svg)](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml)
@@ -21,7 +21,8 @@
 | [v1.5.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.5.0) | 首个公开发布：块级锚点、Worker 池、物化视图、新图标 |
 | v1.5.1 / v1.5.2 | 过滤条件校验、缓存签名、骨架屏、锚定严格失败、冷启动等待视图 |
 | v1.6.0 / v1.6.1 | 会话筛选与会话缓存隔离、缓存耗时如实展示、按会话分片落盘、Worker 自动恢复；1.6.1 修掉审查报告里的两个 P1 |
-| **v1.7.0** | **卡顿根治**（去掉全屏模糊与无限动画、启动不再全量索引、面板关闭即停索引、结果分页渲染）、历史按筛选集独立成条且耗时如实、计算后置复用缓存、文件名可搜、边索引边出结果、仅筛选也能搜、长文独立索引与长文搜索、工作区筛选 |
+| [v1.7.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.7.0) | **卡顿根治**（去掉全屏模糊与无限动画、启动不再全量索引、面板关闭即停索引、结果分页渲染）、历史按筛选集独立成条且耗时如实、计算后置复用缓存、文件名可搜、边索引边出结果、仅筛选也能搜、长文独立索引与长文搜索、工作区筛选 |
+| **[v1.7.1](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.7.1)** | 修复 1.7.0 的回归：重开恢复结果、卡在“正在检索”、打开历史记录改写筛选条件、重建索引无进度、未索引时工作区为空；去掉模糊设置项、目标类型改勾选、侧边栏字号加大、索引解压改异步并行（320ms → 226ms 且不阻塞），详见[v1.7.0...v1.7.1](https://github.com/BR-PC/dsh-flash-anchor/compare/v1.7.0...v1.7.1) |
 
 ## 功能
 
@@ -55,8 +56,8 @@
   ① 弹窗覆盖层用了 `backdrop-filter` 全屏模糊，外加两个 620px、`filter:blur(80px)` 的无限动画光斑，
   合成器每帧都要重画一整屏离屏缓冲；② 每次启动都在后台把全部会话日志重读一遍建索引；
   ③ 结果页一次性渲染 400 个按钮。
-  现在：模糊默认 0（滑杆要开才生效）、动画光斑删除、启动不建索引、**面板关闭立即停索引**、
-  结果按 60 条一页往下滚加载。
+  现在：背景模糊与光斑全部删除（连设置项一起）、启动不建索引、**面板关闭立即停索引**、
+  结果按 60 条一页往下滚加载、索引分片异步并行解压（不再一次阻塞主线程 320ms）。
 - **懒索引**：打开面板只发一个 `boot` 请求（不等索引）；只有真正被搜到的会话才在请求内读取，
   其余由后台按“最新优先”逐个补，搜索进行时后台让路。
 - **语料缓存**：索引未变化时搜索不再重建 1 万+ 文档数组；命中较少的查询 p50 ≈ 6–8 ms，
@@ -188,7 +189,8 @@ node test-anchor.mjs
 7. **定位依赖 Chat DOM 契约**（`data-chat-turn`、`data-chat-node-key`、`data-chat-group-part`、`data-tool` 等）：DSH 改版后若这些属性变化，定位会降级为“只到该轮”。每次跳转的诊断写在 `errors.log` 的 `[client:jump]` 行，可据此区分选择器失配与内容未挂载。
 9. 真实的短查询成本高于“中位数”：单字符宽匹配约 200 ms，属单线程匹配的物理成本；
    同一查询换筛选走缓存，不再重复付这笔成本。
-10. 背景模糊滑杆 > 0 时会明显吃 GPU（这是浏览器的物理成本，不是插件逻辑），默认 0。
+10. 打开面板时仍会把 26 个已落盘分片解压进内存（约 226 ms，已不阻塞界面）；
+    再往下要改成“按需加载分片”，见交接文档的欠账。
 
 ## 致谢与作者
 
