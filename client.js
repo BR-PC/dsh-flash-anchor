@@ -200,6 +200,14 @@ window.__ModuleLoader__.load({
       "deck.snapshot": "历史快照",
       "need.filters": "请输入关键词，或至少选择一个筛选条件",
       "history.filters": "筛选",
+      "log.title": "日志收集",
+      "log.hint": "记录搜索、定位与错误的详细信息，供排查问题；关闭后不再写入。",
+      "log.path": "日志地址",
+      "log.size": "当前 {size}",
+      "log.copy": "复制路径",
+      "log.copied": "日志路径已复制",
+      "log.clear": "清空日志",
+      "log.clearConfirm": "清空诊断日志？不影响搜索结果与索引。",
       "sort.order": "时间顺序",
       "sort.newest": "新→旧",
       "sort.oldest": "旧→新"
@@ -372,6 +380,14 @@ window.__ModuleLoader__.load({
       "deck.snapshot": "History snapshot",
       "need.filters": "Type a keyword, or pick at least one filter",
       "history.filters": "Filters",
+      "log.title": "Log collection",
+      "log.hint": "Records search, jump and error details for troubleshooting; nothing is written when off.",
+      "log.path": "Log file",
+      "log.size": "{size} on disk",
+      "log.copy": "Copy path",
+      "log.copied": "Log path copied",
+      "log.clear": "Clear log",
+      "log.clearConfirm": "Clear the diagnostics log? Results and the index are untouched.",
       "sort.order": "Time order",
       "sort.newest": "New → old",
       "sort.oldest": "Old → new"
@@ -451,6 +467,7 @@ window.__ModuleLoader__.load({
 .ds-stale button{margin-left:auto;flex:none;height:24px;padding:0 9px;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 45%,transparent);background:transparent;color:var(--dsw-alias-label-primary,#e8ecf5);font:inherit;font-size:10px;cursor:pointer}
 .ds-stat-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10.5px;color:var(--dsw-alias-label-secondary,#98a6bf);padding:2px 0}
 .ds-stat-row strong{font-weight:600;color:var(--dsw-alias-label-primary,#e8ecf5)}
+.ds-log-path{margin-top:7px;padding:6px 8px;border-radius:7px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 34%,transparent);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:9.5px;line-height:1.45;color:var(--dsw-alias-label-secondary,#98a6bf);word-break:break-all;user-select:text}
 .ds-privacy{display:flex;align-items:center;gap:5px;margin-top:7px;font-size:10px;color:var(--dsw-alias-state-success-primary,#34d399)}
 .ds-main{position:relative;flex:1;min-width:0;overflow:auto;padding:28px 30px}
 .ds-welcome{max-width:760px;margin:2.5vh auto 0;display:flex;flex-direction:column;gap:18px;animation:ds-rise .35s ease}
@@ -1168,7 +1185,10 @@ window.__ModuleLoader__.load({
         if (preferred === part) value += 12
         else if (preferred === 'response' && part === '') value += 8
         else if (preferred && part !== '') value -= 6
-        if (needle && normalizeText(row.textContent).includes(needle)) value += 6
+        // Text is the strongest signal available once the key is unreliable:
+        // a row that literally contains the hit outranks a kind-only guess.
+        if (needle && normalizeText(row.textContent).includes(needle)) value += 40
+        else if (needle && squashText(row.textContent).includes(squashText(needle))) value += 30
         if (row.getAttribute('data-turn-process-hidden') !== null) value -= 20
         if (value > score) {
           score = value
@@ -1586,7 +1606,32 @@ window.__ModuleLoader__.load({
 
     async function waitForRow(key, target, timeout) {
       const turn = finiteNumber(anchorOf(target).turn ?? target.turn)
-      return waitForMatch(() => (key ? pickSeatRow(key, target) : pickRowInTurn(turn, target)), timeout, 60)
+      return waitForMatch(
+        () => pickSeatRow(key, target) || (key ? pickRowByText(target, turn) : pickRowInTurn(turn, target)),
+        timeout,
+        60,
+      )
+    }
+
+    /**
+     * Last resort when neither the node key nor the Turn mounts.
+     *
+     * A compacted (or re-keyed) message keeps its text in the transcript but
+     * loses the key the anchor was derived from. Scanning the mounted rows of
+     * the matching flow kind for the hit text still lands on the message that
+     * produced the hit, which is the whole point of the search.
+     */
+    function pickRowByText(target, turn = null) {
+      const needle = needleOf(target).text
+      if (!needle) return null
+      const squashed = squashText(needle)
+      const kinds = flowKindsFor(target)
+      const scope = turn === null ? [...document.querySelectorAll('[data-chat-node-key]')] : rowsOfTurn(turn)
+      const rows = mountedRows(scope.filter((row) => kinds.length === 0 || kinds.includes(flowKindOf(row))))
+      const exact = rows.find((row) => normalizeText(row.textContent).includes(needle))
+      if (exact) return exact
+      if (!squashed) return null
+      return rows.find((row) => squashText(row.textContent).includes(squashed)) || null
     }
 
     function reportJump(details) {
@@ -1612,6 +1657,11 @@ window.__ModuleLoader__.load({
         blockIndex: target.blockIndex ?? anchor.blockIndex ?? null,
         seatIndex: target.seatIndex ?? anchor.seatIndex ?? null,
         fragment: String(target.fragment || '').slice(0, 48),
+        query: String(target.query || '').slice(0, 80),
+        snippet: String(target.snippet || '').slice(0, 160),
+        blockIndex: target.blockIndex ?? null,
+        seatWanted: String(target.seatIndex ?? '').slice(0, 8),
+        viewport: (chatScroller() && Number(chatScroller().clientHeight)) || 0,
         ok: false,
       }
       const started = Date.now()
@@ -1623,11 +1673,21 @@ window.__ModuleLoader__.load({
         trace.keyHow = resolved.how
         trace.keyFound = resolved.key
         trace.turnRows = rowsOfTurn(turn).length
+        trace.rowsTotal = document.querySelectorAll('[data-chat-node-key]').length
 
-        let row = resolved.key ? pickSeatRow(resolved.key, target) : null
-        // An anchored hit must land on its own message; picking another row in
-        // the Turn is how "jumped somewhere unrelated" came back.
-        if (!row && !resolved.key) row = pickRowInTurn(turn, target)
+        // A derived key can be right about the Turn and wrong about the node
+        // (compacted or re-keyed messages). When the key fails, only a row that
+        // literally contains the hit text is acceptable — never a same-Turn
+        // neighbour, which is how "jumped somewhere unrelated" came back.
+        let row = pickSeatRow(resolved.key, target)
+        if (row) trace.pickHow = 'key'
+        else if (resolved.key) {
+          row = pickRowByText(target, turn)
+          if (row) trace.pickHow = 'turn-text'
+        } else {
+          row = pickRowInTurn(turn, target)
+          if (row) trace.pickHow = 'turn-kind'
+        }
         if (!row && turn !== null) {
           // A cold click opens the Session; its Chat view mounts after the
           // binding, so the locate attempt starts once the view exists rather
@@ -1651,7 +1711,9 @@ window.__ModuleLoader__.load({
                 trace.keyFound = resolved.key
               }
             }
-            row = resolved.key ? pickSeatRow(resolved.key, target) : pickRowInTurn(turn, target)
+            row =
+              pickSeatRow(resolved.key, target) ||
+              (resolved.key ? pickRowByText(target, turn) : pickRowInTurn(turn, target))
             if (row) break
             if (!trace.turnMark || attempt % 3 === 0) {
               trace.turnMark = await clickTurnMark(turn, attempt === 1 ? 900 : 150)
@@ -1676,6 +1738,15 @@ window.__ModuleLoader__.load({
             // so instead of spinning out the whole budget.
             if (idle >= 6) break
             if (!row) await delay(120)
+          }
+        }
+        if (!row) {
+          // The Turn never mounted (or the message lives outside it): scan the
+          // mounted transcript for the hit text before giving up.
+          row = pickRowByText(target)
+          if (row) {
+            trace.pickHow = 'text-scan'
+            trace.scanned = true
           }
         }
         if (!row) throw new Error(resolved.key ? 'not-mounted' : 'no-anchor')
@@ -1705,6 +1776,9 @@ window.__ModuleLoader__.load({
         trace.scrollTop = scrollTopOf(row)
         trace.blockText = normalizeText(block.textContent).slice(0, 40)
         trace.reason = found.reason
+        trace.blockReason = found.reason
+        trace.blockFound = found.element !== null
+        trace.rowsTotal = document.querySelectorAll('[data-chat-node-key]').length
         trace.ok = found.element !== null && found.reason !== 'row-text'
         if (!trace.ok) trace.partial = 'turn-only'
         trace.ms = Date.now() - started
@@ -1874,6 +1948,13 @@ window.__ModuleLoader__.load({
       if (kind === 'userText') return '#06b6d4'
       if (kind === 'long') return '#a855f7'
       return '#2dd4bf'
+    }
+
+    function formatBytes(value) {
+      const bytes = Number(value) || 0
+      if (bytes < 1024) return bytes + ' B'
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
     }
 
     function relativeTime(t, timestamp) {
@@ -2124,6 +2205,7 @@ window.__ModuleLoader__.load({
       const [threads, setThreads] = React.useState(initial.threads || 2)
       const [sessionsState, setSessionsState] = React.useState({ loading: false, loaded: false, items: [] })
       const [workspaces, setWorkspaces] = React.useState([])
+      const [log, setLog] = React.useState({ enabled: true, path: '', bytes: 0 })
       const [data, setData] = React.useState(null)
       // A result page can only be restored when there is a saved page to restore;
       // "results open" without an id would open a skeleton that never fills.
@@ -2215,6 +2297,7 @@ window.__ModuleLoader__.load({
             const server = payload.state || {}
             setHistory(Array.isArray(server.history) ? server.history : [])
             setWorkspaces(Array.isArray(payload.workspaces) ? payload.workspaces : [])
+            if (payload.log) setLog(payload.log)
             // The workspace list only needs the session headers; ask for it
             // immediately instead of waiting for the index to finish loading.
             window.setTimeout(() => {
@@ -2990,6 +3073,32 @@ window.__ModuleLoader__.load({
               onLongRebuild: () => longOp('rebuild'),
               onLongClear: clearLong,
               onToggleAutoLong: () => longOp('auto', { autoLong: indexStatus.autoLong !== true }),
+              log,
+              onToggleLog: async () => {
+                try {
+                  const payload = await apiPost({ action: 'log' }, { enabled: log.enabled === false })
+                  if (payload.log) setLog(payload.log)
+                } catch {
+                  showNotice(t('index.failed'))
+                }
+              },
+              onClearLog: async () => {
+                if (!window.confirm(t('log.clearConfirm'))) return
+                try {
+                  const payload = await apiPost({ action: 'log' }, { clear: true })
+                  if (payload.log) setLog(payload.log)
+                } catch {
+                  showNotice(t('index.failed'))
+                }
+              },
+              onCopyLogPath: async () => {
+                try {
+                  if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(log.path)
+                  showNotice(t('log.copied'))
+                } catch {
+                  showNotice(log.path)
+                }
+              },
             }),
             h(WelcomePane, {
               t,
@@ -3319,6 +3428,29 @@ window.__ModuleLoader__.load({
             checked: props.indexStatus.autoLong === true,
             onChange: props.onToggleAutoLong,
           }),
+          h(
+            'div',
+            { className: 'ds-section', style: { marginTop: '10px' } },
+            h(
+              'div',
+              { className: 'ds-label' },
+              h('span', null, t('log.title')),
+              h('span', { className: 'ds-label-hint' }, t('log.size', { size: formatBytes(props.log && props.log.bytes) })),
+            ),
+            h(SwitchRow, {
+              title: t('log.title'),
+              hint: t('log.hint'),
+              checked: !props.log || props.log.enabled !== false,
+              onChange: props.onToggleLog,
+            }),
+            h('div', { className: 'ds-log-path', title: (props.log && props.log.path) || '' }, (props.log && props.log.path) || '—'),
+            h(
+              'div',
+              { className: 'ds-index-actions' },
+              h('button', { type: 'button', className: 'ds-mini-btn', onClick: props.onCopyLogPath }, t('log.copy')),
+              h('button', { type: 'button', className: 'ds-mini-btn', onClick: props.onClearLog }, t('log.clear')),
+            ),
+          ),
           h('div', { className: 'ds-privacy' }, h(SparkIcon, { size: 11 }), h('span', null, t('welcome.privacy'))),
         ),
       )

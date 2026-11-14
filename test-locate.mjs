@@ -40,6 +40,7 @@ const HELPERS = [
   'mountedRows',
   'pickSeatRow',
   'pickRowInTurn',
+  'pickRowByText',
   'rowsOfTurn',
   'squashText',
   'uniqueStrings',
@@ -1020,6 +1021,30 @@ function record(name) {
   assert.equal(found.reason, 'block', 'reasoning body was not located as a block: ' + JSON.stringify(found.reason))
   assert.ok(found.element && found.element.textContent.indexOf('先看日志') !== -1)
   record('reasoning body without semantic tags')
+}
+
+
+// 24. A stale message id (compacted / re-keyed) must still land on the message
+//     that produced the hit: the node key is wrong, the Turn's text is not.
+{
+  const scene = buildScene()
+  const harness = createRuntime(scene)
+  const diag = await runJump(harness, {
+    sessionId: 's1',
+    kind: 'userText',
+    turn: 1,
+    seq: 999,
+    messageId: 'u-999',
+    anchor: { turn: 1, seq: 999, messageId: 'u-999', blockIndex: 0, blockKind: 'text', chunk: 0 },
+    fragment: '北京今天的天气',
+    query: '北京今天的天气',
+  })
+  assert.ok(diag, 'stale key: no diagnostic')
+  assert.equal(diag.ok, true, 'stale key must fall back to the message text: ' + diagnose(diag))
+  assert.equal(diag.pickHow, 'turn-text')
+  assert.ok(diag.blockText.indexOf('北京今天的天气') !== -1, 'landed on the wrong block: ' + diag.blockText)
+  assertCentered(diag, 'stale key falls back to text')
+  record('stale key falls back to the message text')
 }
 
 console.log('deepsearch locate contracts: ok (' + checks.length + ' scenarios)')

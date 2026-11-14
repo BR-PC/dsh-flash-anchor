@@ -110,7 +110,14 @@ async function handleRequest(index, store, request) {
       // first request is what starts bootstrap, so DSH startup stays free.
       void index.ensureReady()
       index.setPanelOpen(true)
-      return json({ ok: true, index: index.status(), state: store.publicState(), workspaces: index.workspaces() })
+      store.logDiag('panel', { event: 'open' })
+      return json({
+        ok: true,
+        index: index.status(),
+        state: store.publicState(),
+        workspaces: index.workspaces(),
+        log: await store.logInfo(),
+      })
     }
     if (action === 'open') {
       index.setPanelOpen(true)
@@ -118,7 +125,13 @@ async function handleRequest(index, store, request) {
     }
     if (action === 'close') {
       index.setPanelOpen(false)
+      store.logDiag('panel', { event: 'close' })
       return json({ ok: true })
+    }
+    if (action === 'log') {
+      if (body && body.clear === true) return json({ ok: true, log: await store.clearDiag() })
+      if (body && typeof body.enabled === 'boolean') store.setLogCollection(body.enabled)
+      return json({ ok: true, log: await store.logInfo() })
     }
     if (action === 'workspaces') {
       // Deliberately does not wait for the index: the workspace list comes from
@@ -227,6 +240,10 @@ async function handleRequest(index, store, request) {
       // Same-origin only, but a diagnostic payload has no business growing
       // without a bound in a rotated log file.
       await store.logError('client:' + scope, JSON.stringify(body || {}).slice(0, 4_000))
+      // The structured log keeps the whole payload: it is what makes a jump
+      // failure reproducible without guessing.
+      const { scope: _scope, ...payload } = body || {}
+      store.logDiag('client:' + scope, payload)
       return json({ ok: true })
     }
     if (action !== 'search') {
@@ -275,6 +292,26 @@ async function handleRequest(index, store, request) {
       }
     }
     const payload = await index.search(searchRequest)
+    store.logDiag('search', {
+      q: payload.query,
+      scope: payload.scope,
+      workspace: payload.workspace,
+      types: payload.types,
+      exts: payload.exts,
+      sort: payload.sort,
+      long: payload.long,
+      auto: searchRequest.auto === true,
+      total: payload.total,
+      items: Array.isArray(payload.items) ? payload.items.length : 0,
+      pending: payload.pending,
+      scanned: payload.scanned,
+      mode: payload.mode,
+      threads: payload.threads,
+      tookMs: payload.tookMs,
+      surfaceMs: payload.surfaceMs,
+      matchMs: payload.matchMs,
+      signature: payload.signature,
+    })
     // A partial page (indexing still in flight) must not be remembered as the
     // answer to this query: the next open would replay fewer hits.
     const saved =
@@ -297,6 +334,11 @@ async function handleRequest(index, store, request) {
     const message = error instanceof Error ? error.message : String(error)
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'search-failed'
     await store.logError('request:' + new URL(request.url).searchParams.get('action'), error)
+    store.logDiag('error', {
+      action: new URL(request.url).searchParams.get('action'),
+      message,
+      stack: error && error.stack ? String(error.stack).slice(0, 4_000) : null,
+    })
     return json({ ok: false, error: { code, message } }, 500)
   }
 }
@@ -1961,6 +2003,10 @@ class StateStore {
     // Long documents live in their own directory: they can be deleted and
     // rebuilt without touching the ordinary index.
     this.longDir = path.join(this.dir, 'long')
+    // Structured, line-per-event diagnostics. The path is shown in the panel so
+    // a bug report can name the file it came from.
+    this.diagFile = path.join(this.dir, 'diagnostics.log')
+    this.diagChained = Promise.resolve()
     this.state = defaultState()
     this.loadPromise = null
     this.stateTimer = null
@@ -2040,6 +2086,7 @@ class StateStore {
       history,
       autoIndex: this.state.autoIndex,
       autoLong: this.state.autoLong !== false,
+      logCollection: this.state.logCollection !== false,
       revision: this.state.revision,
     }
   }
@@ -2058,6 +2105,67 @@ class StateStore {
   setAutoLong(value) {
     this.state.autoLong = value !== false
     this.saveStateSoon()
+  }
+
+  setLogCollection(value) {
+    this.state.logCollection = value !== false
+    this.saveStateSoon()
+  }
+
+  logEnabled() {
+    return this.state.logCollection !== false
+  }
+
+  /**
+   * Append one structured line. Never throws and never awaits the caller: a
+   * diagnostic must not be able to slow a search down or break a request.
+   */
+  logDiag(type, payload) {
+    if (!this.logEnabled()) return
+    let line
+    try {
+      line = JSON.stringify({ ts: new Date().toISOString(), type, ...(payload || {}) }).slice(0, 8_000)
+    } catch {
+      return
+    }
+    this.diagChained = this.diagChained
+      .catch(() => {})
+      .then(async () => {
+        try {
+          await fs.mkdir(this.dir, { recursive: true })
+          try {
+            const stat = await fs.stat(this.diagFile)
+            if (stat.size > 8_000_000) await fs.rename(this.diagFile, this.diagFile + '.1')
+          } catch {
+            /* first write */
+          }
+          await fs.appendFile(this.diagFile, line + '\n')
+        } catch {
+          /* diagnostics must never break the route */
+        }
+      })
+  }
+
+  async logInfo() {
+    let bytes = 0
+    let updated = null
+    try {
+      const stat = await fs.stat(this.diagFile)
+      bytes = stat.size
+      updated = stat.mtime.toISOString()
+    } catch {
+      /* no log yet */
+    }
+    return { enabled: this.logEnabled(), path: this.diagFile, bytes, updated }
+  }
+
+  async clearDiag() {
+    try {
+      await fs.rm(this.diagFile, { force: true })
+    } catch {
+      /* already gone */
+    }
+    return this.logInfo()
   }
 
   bumpRevision() {
@@ -2403,6 +2511,7 @@ function defaultState() {
     savedSearches: {},
     autoIndex: true,
     autoLong: true,
+    logCollection: true,
     revision: 0,
   }
 }

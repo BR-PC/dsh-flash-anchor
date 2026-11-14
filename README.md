@@ -1,6 +1,6 @@
 # FlashAnchor / 闪电锚点
 
-[![Release](https://img.shields.io/badge/release-v1.7.1-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
+[![Release](https://img.shields.io/badge/release-v1.8.0-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
 [![License](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-DSH%20Desktop%20%C2%B7%20DSH%20Web-6366f1)](https://github.com/BR-PC/dsh-flash-anchor)
 [![CI](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml/badge.svg)](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml)
@@ -20,7 +20,8 @@
 | v1.5.1 / v1.5.2 | 过滤条件校验、缓存签名、骨架屏、锚定严格失败、冷启动等待视图 |
 | v1.6.0 / v1.6.1 | 会话筛选与会话缓存隔离、缓存耗时如实展示、按会话分片落盘、Worker 自动恢复；1.6.1 修掉审查报告里的两个 P1 |
 | [v1.7.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.7.0) | **卡顿根治**（去掉全屏模糊与无限动画、启动不再全量索引、面板关闭即停索引、结果分页渲染）、历史按筛选集独立成条且耗时如实、计算后置复用缓存、文件名可搜、边索引边出结果、仅筛选也能搜、长文独立索引与长文搜索、工作区筛选 |
-| **[v1.7.1](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.7.1)** | 修复 1.7.0 的回归：重开恢复结果、卡在“正在检索”、打开历史记录改写筛选条件、重建索引无进度、未索引时工作区为空；去掉模糊设置项、目标类型改勾选、侧边栏字号加大、索引解压改异步并行（320ms → 226ms 且不阻塞），详见[v1.7.0...v1.7.1](https://github.com/BR-PC/dsh-flash-anchor/compare/v1.7.0...v1.7.1) |
+| [v1.7.1](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.7.1) | 修复 1.7.0 的回归：重开恢复结果、卡在“正在检索”、打开历史记录改写筛选条件、重建索引无进度、未索引时工作区为空；去掉模糊设置项、目标类型改勾选、侧边栏字号加大、索引解压改异步并行（320ms → 226ms 且不阻塞），详见[v1.7.0...v1.7.1](https://github.com/BR-PC/dsh-flash-anchor/compare/v1.7.0...v1.7.1) |
+| **[v1.8.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.8.0)** | **定位修复**：消息节点 key 失效（会话被压缩/重新编号）时，改为按命中文本在本轮/全量已挂载行里定位，不再报“未能定位”；**日志收集**：侧边栏新增开关与日志地址，逐条记录搜索、定位、错误；`diagnostics.log` 结构化 JSONL |
 
 ## 功能
 
@@ -47,6 +48,9 @@
   再在该节点内按块文本匹配，展开折叠的思考/工具卡片，最后把**块**滚到视口中心并只高亮该块。
 - 虚拟列表未挂载时：先等 Chat 视图就绪 → 点轨迹栏对应轮次 → `loadThrough` → 直接滚动转录区，四重兜底。
 - **宁可报“未定位到”也不跳到同轮的另一条消息**：有自身地址的命中不会用同轮邻居顶替。
+- **key 失效时按文本兜底**（1.8.0）：会话被压缩或消息被重新编号后，历史消息的节点 key 可能已经不存在，
+  但正文还在。此时依次尝试「本轮里包含命中文本的行 → 全量已挂载行里包含命中文本的行」，
+  仍然只落在**确实包含**这段文字的那一行，不会拿同轮邻居顶替。
 
 ### 性能
 
@@ -76,7 +80,9 @@
   - `index/` + `index.json.gz`：**文档正文的本地索引**（gzip）。为了让历史内容可搜，
     这里确实保存了会话文本的可检索副本；它只在本机，删掉会按需重建。
   - `long/`：长文段落（每个超长块的尾部）单独存放，可在设置里独立重建/清空，不影响普通索引。
-  - `errors.log`：定位诊断（点击时的目标、结果），超过 1 MB 轮转。
+  - `diagnostics.log`：结构化 JSONL 诊断（每次搜索的参数/耗时/命中数、每次定位的目标/阶段/结果、错误堆栈），
+    超过 8 MB 轮转保留一份；侧边栏「日志收集」可随时关闭或清空。
+  - `errors.log`：异常堆栈（始终写入），超过 1 MB 轮转。
 - 关闭“自动索引”或点“清空”即可随时移除本地索引；插件不修改任何会话数据（Host 侧只读）。
 
 ## 安装
@@ -127,6 +133,7 @@ npm pack                      # 生成 flash-anchor-<version>.tgz
 | 筛选 | 左侧设置：范围（全部/指定会话）、工作区、目标类型（含长文）、排序；结果页顶部 chips 始终反映**当前页面**的筛选 |
 | 长文 | 结果末尾与“无结果”处都有长文搜索入口；设置里可查看长文段数并独立重建/清空 |
 | 历史 | 每条历史保存**那次搜索自己的筛选条件**；打开它只显示它自己的结果，返回首页会还原你原来的筛选 |
+| 日志收集 | 侧边栏底部可开关，并显示日志完整路径；打开时逐条记录搜索/定位/错误，默认写入 `$DSH_HOME/flash-anchor/diagnostics.log` |
 | 定位 | 点击结果 → 打开会话 → 展开折叠 → 滚动并高亮命中块；失败会明确提示，不会跳到别处 |
 
 结果页 chips 的含义：`恢复 Nms` = **这次打开**用掉的时间（缓存页只算重建快照的时间），
@@ -184,7 +191,10 @@ node test-anchor.mjs
 6. 结果默认上限 400 条，一次渲染 60 条、滚动加载；超出会提示“已截断”。
 7. 历史按“查询词 + 完整筛选条件”各成一条（12 条 / 快照 LRU 50）；同一句换筛选会出现多条，
    这正是“打开哪条就还原哪条的筛选”的前提。
-7. **定位依赖 Chat DOM 契约**（`data-chat-turn`、`data-chat-node-key`、`data-chat-group-part`、`data-tool` 等）：DSH 改版后若这些属性变化，定位会降级为“只到该轮”。每次跳转的诊断写在 `errors.log` 的 `[client:jump]` 行，可据此区分选择器失配与内容未挂载。
+7. **定位依赖 Chat DOM 契约**（`data-chat-turn`、`data-chat-node-key`、`data-chat-group-part`、`data-tool` 等）。
+   1.8.0 起，key 找不到时会按命中文本在当前轮、再在全量已挂载行里兜底，因此“会话被压缩/消息被重编号”
+   不再直接失败；只有连正文都不在 DOM 里（例如该消息被压缩掉了渲染）才会提示“只到该轮”。
+   每次跳转的完整诊断写在 `diagnostics.log`（`type: "client:jump"`），可直接看出卡在哪一级。
 9. 真实的短查询成本高于“中位数”：单字符宽匹配约 200 ms，属单线程匹配的物理成本；
    同一查询换筛选走缓存，不再重复付这笔成本。
 10. 打开面板时仍会把 26 个已落盘分片解压进内存（约 226 ms，已不阻塞界面）；
