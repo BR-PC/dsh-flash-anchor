@@ -171,6 +171,7 @@ window.__ModuleLoader__.load({
       "results.stale": "缓存结果可能已过期（索引已变化）",
       "results.update": "更新结果",
       "results.updated": "结果已更新 · {count} 条",
+      "results.timeout": "请求超时，已取消。请重试，或在设置里重建索引。",
       "ws": "工作区",
       "ws.all": "全部工作区",
       "ws.hint": "按会话的启动目录筛选",
@@ -342,6 +343,7 @@ window.__ModuleLoader__.load({
       "results.stale": "Cached result may be stale because the index changed",
       "results.update": "Update results",
       "results.updated": "Results updated · {count}",
+      "results.timeout": "The request timed out. Retry, or rebuild the index in the settings.",
       "ws": "Workspace",
       "ws.all": "All workspaces",
       "ws.hint": "Filter sessions by their working directory",
@@ -411,38 +413,38 @@ window.__ModuleLoader__.load({
 .ds-body{position:relative;z-index:1;flex:1;min-height:0;display:flex}
 .ds-side{width:312px;flex:none;height:100%;min-height:0;display:flex;flex-direction:column;gap:0;padding:16px 14px 12px;overflow:auto;overscroll-behavior:contain;border-right:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-bg-layer-1,#10141c) 38%,transparent),color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 18%,transparent))}
 .ds-section{margin-bottom:13px}
-.ds-label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 7px;font-size:10.5px;font-weight:650;letter-spacing:.85px;text-transform:uppercase;color:var(--dsw-alias-label-secondary,#98a6bf)}
-.ds-label-hint{font-size:9.5px;font-weight:450;letter-spacing:.1px;text-transform:none;color:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 78%,transparent)}
+.ds-label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 7px;font-size:11.5px;font-weight:650;letter-spacing:.85px;text-transform:uppercase;color:var(--dsw-alias-label-secondary,#98a6bf)}
+.ds-label-hint{font-size:10.5px;font-weight:450;letter-spacing:.1px;text-transform:none;color:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 78%,transparent)}
 .ds-seg{display:flex;gap:2px;padding:3px;border-radius:11px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 32%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 34%,transparent)}
-.ds-seg-btn{flex:1;min-width:0;height:29px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary,#98a6bf);font:inherit;font-size:11.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .16s,color .16s,box-shadow .16s}
+.ds-seg-btn{flex:1;min-width:0;height:30px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary,#98a6bf);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .16s,color .16s,box-shadow .16s}
 .ds-seg-btn:hover{color:var(--dsw-alias-label-primary,#e8ecf5)}
 .ds-seg-btn.is-active{background:color-mix(in srgb,var(--dsw-alias-bg-overlay,#fff) 82%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);box-shadow:0 2px 8px rgba(0,0,0,.18),inset 0 1px 0 color-mix(in srgb,#fff 16%,transparent)}
 .ds-chips{display:flex;flex-wrap:wrap;gap:6px}
-.ds-chip{display:inline-flex;align-items:center;gap:6px;height:29px;padding:0 9px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 26%,transparent);color:var(--dsw-alias-label-secondary,#98a6bf);font:inherit;font-size:11.5px;cursor:pointer;transition:all .16s}
+.ds-chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 26%,transparent);color:var(--dsw-alias-label-secondary,#98a6bf);font:inherit;font-size:12.5px;cursor:pointer;transition:all .16s}
 .ds-chip:hover{color:var(--dsw-alias-label-primary,#e8ecf5);border-color:color-mix(in srgb,var(--dsw-alias-border-l2,#8ea0c0) 55%,transparent)}
-.ds-chip.is-active{color:var(--dsw-alias-label-primary,#e8ecf5);border-color:color-mix(in srgb,var(--k,#0ea5e9) 60%,transparent);background:color-mix(in srgb,var(--k,#0ea5e9) 16%,transparent);box-shadow:0 2px 12px color-mix(in srgb,var(--k,#0ea5e9) 18%,transparent)}
-.ds-chip-dot{width:6px;height:6px;flex:none;border-radius:50%;background:var(--k,#0ea5e9);box-shadow:0 0 0 2px color-mix(in srgb,var(--k,#0ea5e9) 20%,transparent)}
+.ds-chip.is-active{color:var(--dsw-alias-label-primary,#e8ecf5);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 12%,transparent)}
+.ds-chip-check{width:11px;flex:none;font-size:10px;line-height:1;color:var(--dsw-alias-brand-primary,#0ea5e9)}
 .ds-chip kbd{font:inherit}
-.ds-input{width:100%;height:33px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 32%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);padding:0 10px;font:inherit;font-size:11.5px;outline:none;transition:border-color .16s,box-shadow .16s}
+.ds-input{width:100%;height:33px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 32%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);padding:0 10px;font:inherit;font-size:12.5px;outline:none;transition:border-color .16s,box-shadow .16s}
 .ds-input::placeholder{color:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 78%,transparent)}
 .ds-input:focus{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 65%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 18%,transparent)}
-.ds-hint{margin-top:6px;font-size:10px;line-height:1.5;color:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 88%,transparent)}
+.ds-hint{margin-top:6px;font-size:11px;line-height:1.55;color:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 88%,transparent)}
 .ds-picker{margin-top:8px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 32%,transparent);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 34%,transparent);overflow:hidden}
 .ds-picker-head{padding:8px;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 26%,transparent)}
 .ds-picker-list{max-height:174px;overflow:auto;padding:4px}
 .ds-picker-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:7px 8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary,#e8ecf5);text-align:left;cursor:pointer}
 .ds-picker-item:hover{background:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 12%,transparent)}
 .ds-picker-item.is-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 18%,transparent);box-shadow:inset 2px 0 0 var(--dsw-alias-brand-primary,#0ea5e9)}
-.ds-picker-title{width:100%;font-size:11.5px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ds-picker-meta{width:100%;font-size:9.5px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-picker-title{width:100%;font-size:12.5px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-picker-meta{width:100%;font-size:10.5px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ds-picker-empty{padding:12px 8px;font-size:10.5px;text-align:center;color:var(--dsw-alias-label-secondary,#98a6bf)}
 .ds-selected-card{display:flex;align-items:center;gap:8px;margin-top:8px;padding:7px 9px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 36%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 11%,transparent)}
 .ds-selected-card span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
 .ds-selected-card svg{flex:none;color:var(--dsw-alias-brand-primary,#0ea5e9)}
 .ds-side-foot{margin-top:auto;padding-top:12px;border-top:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 28%,transparent)}
-.ds-index-status{margin-top:5px;font-size:10px;line-height:1.55;color:var(--dsw-alias-label-secondary,#98a6bf)}
+.ds-index-status{margin-top:5px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary,#98a6bf)}
 .ds-index-actions{display:flex;gap:6px;margin-top:7px}
-.ds-mini-btn{height:25px;padding:0 8px;border-radius:7px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 26%,transparent);color:var(--dsw-alias-label-secondary,#98a6bf);font:inherit;font-size:10px;cursor:pointer}
+.ds-mini-btn{height:27px;padding:0 9px;border-radius:7px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 26%,transparent);color:var(--dsw-alias-label-secondary,#98a6bf);font:inherit;font-size:11px;cursor:pointer}
 .ds-mini-btn:hover{color:var(--dsw-alias-label-primary,#e8ecf5);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 42%,transparent)}
 .ds-mini-btn:disabled{opacity:.55;cursor:default}
 .ds-stale{display:flex;align-items:center;gap:8px;margin:8px 16px 0;padding:7px 10px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary,#d29922) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#d29922) 9%,transparent);font-size:10.5px;color:var(--dsw-alias-label-secondary,#98a6bf)}
@@ -524,8 +526,8 @@ window.__ModuleLoader__.load({
 .ds-switch-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:8px 0;border-top:.5px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 26%,transparent)}
 .ds-switch-row:first-of-type{border-top:0;padding-top:2px}
 .ds-switch-copy{min-width:0}
-.ds-switch-title{font-size:11.5px;line-height:1.35;color:var(--dsw-alias-label-primary,#e8ecf5)}
-.ds-switch-hint{font-size:10px;line-height:1.4;color:var(--dsw-alias-label-secondary,#98a6bf);margin-top:2px}
+.ds-switch-title{font-size:12.5px;line-height:1.35;color:var(--dsw-alias-label-primary,#e8ecf5)}
+.ds-switch-hint{font-size:11px;line-height:1.4;color:var(--dsw-alias-label-secondary,#98a6bf);margin-top:2px}
 .ds-switch{position:relative;flex:none;width:38px;height:22px;padding:0;border:0;border-radius:999px;cursor:pointer;background:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 42%,transparent);transition:background .18s ease}
 .ds-switch.is-on{background:var(--dsw-alias-state-success-primary,#34c759)}
 .ds-switch-knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .18s ease}
@@ -559,7 +561,7 @@ window.__ModuleLoader__.load({
 @keyframes ds-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 @keyframes ds-spin{to{transform:rotate(360deg)}}
 @keyframes ds-progress{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.ds-select{width:100%;height:33px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 32%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);padding:0 8px;font:inherit;font-size:11.5px;outline:none;cursor:pointer}
+.ds-select{width:100%;height:33px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 32%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);padding:0 8px;font:inherit;font-size:12.5px;outline:none;cursor:pointer}
 .ds-select:focus{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 65%,transparent)}
 .ds-history-meta{display:flex;align-items:center;gap:4px;margin-left:2px;flex-wrap:wrap}
 .ds-badge{display:inline-flex;align-items:center;height:16px;padding:0 5px;border-radius:5px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#182030) 40%,transparent);font-size:9px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap}
@@ -657,7 +659,7 @@ window.__ModuleLoader__.load({
           query: typeof saved.query === 'string' ? saved.query : '',
           workspace: typeof saved.workspace === 'string' ? saved.workspace : '',
           long: saved.long === true,
-          blur: clampNumber(saved.blur, 0, 48, defaults.blur),
+          blur: 0,
           alpha: clampNumber(saved.alpha, 55, 100, defaults.alpha),
           speculative: saved.speculative === true,
           scatter: saved.scatter !== false,
@@ -2037,11 +2039,10 @@ window.__ModuleLoader__.load({
         {
           type: 'button',
           className: 'ds-chip' + (props.active ? ' is-active' : ''),
-          style: { '--k': kindColor(props.kind) },
           'aria-pressed': props.active,
           onClick: props.onToggle,
         },
-        h('span', { className: 'ds-chip-dot' }),
+        h('span', { className: 'ds-chip-check', 'aria-hidden': 'true' }, props.active ? '✓' : ''),
         h('span', null, props.label),
       )
     }
@@ -2124,8 +2125,11 @@ window.__ModuleLoader__.load({
       const [sessionsState, setSessionsState] = React.useState({ loading: false, loaded: false, items: [] })
       const [workspaces, setWorkspaces] = React.useState([])
       const [data, setData] = React.useState(null)
-      const [searching, setSearching] = React.useState(Boolean(initial.resultsOpen))
-      const [resultsOpen, setResultsOpen] = React.useState(Boolean(initial.resultsOpen))
+      // A result page can only be restored when there is a saved page to restore;
+      // "results open" without an id would open a skeleton that never fills.
+      const restoreOnOpen = Boolean(initial.resultsOpen && initial.savedId)
+      const [searching, setSearching] = React.useState(restoreOnOpen)
+      const [resultsOpen, setResultsOpen] = React.useState(restoreOnOpen)
       const [progress, setProgress] = React.useState({ pending: 0 })
       const [error, setError] = React.useState(null)
       const [notice, setNotice] = React.useState(null)
@@ -2156,7 +2160,7 @@ window.__ModuleLoader__.load({
       const noticeTimer = React.useRef(null)
       const saveTimer = React.useRef(null)
       const prefsRef = React.useRef(null)
-      const homeRef = React.useRef(null)
+      const snapshotBaseRef = React.useRef('')
       const lastSearchRef = React.useRef('')
       const pendingRef = React.useRef(0)
 
@@ -2164,7 +2168,8 @@ window.__ModuleLoader__.load({
         () => ({ query, scopeMode, selectedSession, types, ext, sort, timeOrder, workspace, long }),
         [query, scopeMode, selectedSession, types, ext, sort, timeOrder, workspace, long],
       )
-      const currentSignature = searchSignature(filters)
+      // A snapshot is gated by its own signature; a live page by the sidebar's.
+      const currentSignature = viewSaved ? viewSaved.signature : searchSignature(filters)
 
       const showNotice = React.useCallback((message) => {
         setNotice(message)
@@ -2210,6 +2215,15 @@ window.__ModuleLoader__.load({
             const server = payload.state || {}
             setHistory(Array.isArray(server.history) ? server.history : [])
             setWorkspaces(Array.isArray(payload.workspaces) ? payload.workspaces : [])
+            // The workspace list only needs the session headers; ask for it
+            // immediately instead of waiting for the index to finish loading.
+            window.setTimeout(() => {
+              api({ action: 'workspaces' })
+                .then((next) => {
+                  if (alive && Array.isArray(next.workspaces)) setWorkspaces(next.workspaces)
+                })
+                .catch(() => {})
+            }, 0)
             setIndexStatus({
               ...(payload.index || {}),
               autoIndex: payload.index ? payload.index.autoIndex !== false : server.autoIndex !== false,
@@ -2459,6 +2473,9 @@ window.__ModuleLoader__.load({
           }
           const signature = searchSignature(probe)
           lastSearchRef.current = signature
+          // A live search always leaves snapshot mode: the deck is gated by the
+          // snapshot signature, so keeping it would show a skeleton forever.
+          setViewSaved(null)
           if (typeof override === 'string') setQuery(override)
           setError(null)
           const near = force ? null : searchCache.get(signature)
@@ -2528,7 +2545,7 @@ window.__ModuleLoader__.load({
             setError(message)
             return null
           } finally {
-            if (abortRef.current === controller) setSearching(false)
+            setSearching(false)
           }
         },
         [filters, scatter, threads, showNotice, t],
@@ -2568,24 +2585,37 @@ window.__ModuleLoader__.load({
         }
       }, [resultsOpen, progress.pending, searching, viewSaved, runSearch])
 
+      // An explicit rebuild must report progress; without this the button looked
+      // dead because nothing ever refetched the status.
+      React.useEffect(() => {
+        if (!indexStatus.running) return
+        const timer = window.setInterval(() => {
+          api({ action: 'status' })
+            .then((payload) => {
+              if (payload.index) setIndexStatus((current) => ({ ...current, ...payload.index }))
+            })
+            .catch(() => {})
+        }, 1000)
+        return () => window.clearInterval(timer)
+      }, [indexStatus.running])
+
       // Filter tweaks re-run the query in place; they never write a history row.
       React.useEffect(() => {
-        if (!stateReady || !resultsOpen || !data || viewSaved) return
-        if (searchSignature(filters) === lastSearchRef.current) return
+        if (!stateReady || !resultsOpen || !data) return
+        const current = searchSignature(filters)
+        if (viewSaved) {
+          // Still the filter set the snapshot was opened over: leave it alone.
+          if (current === snapshotBaseRef.current) return
+        } else if (current === lastSearchRef.current) {
+          return
+        }
         if (!filterOnlySearch(filters)) return
         const timer = window.setTimeout(() => {
+          setViewSaved(null)
           void runSearch(undefined, true, filters, { auto: true, silent: true })
         }, 260)
         return () => window.clearTimeout(timer)
       }, [stateReady, resultsOpen, data, viewSaved, filters, runSearch])
-
-      // Changing any filter while a history entry is open leaves that snapshot
-      // and continues as a fresh search.
-      React.useEffect(() => {
-        if (!viewSaved) return
-        if (searchSignature(filters) === viewSaved.signature) return
-        setViewSaved(null)
-      }, [filters, viewSaved])
 
       const updateResults = async () => {
         const payload = await runSearch(undefined, true)
@@ -2594,10 +2624,13 @@ window.__ModuleLoader__.load({
 
       const loadSaved = async (entry) => {
         if (!entry || typeof entry.id !== 'string') return
-        if (!homeRef.current) homeRef.current = filters
+        // Opening a snapshot must never rewrite the reader's own filters: the
+        // page is shown as the snapshot it is and the sidebar keeps its state.
         const entryFilters = filtersOfEntry(entry)
-        applyFilters(entryFilters)
         const entrySignature = searchSignature(entryFilters)
+        // Remember which sidebar filter set this snapshot was opened over, so a
+        // real interaction (not the opening itself) is what leaves the snapshot.
+        snapshotBaseRef.current = searchSignature(filters)
         lastSearchRef.current = entrySignature
         setViewSaved({ id: entry.id, signature: entrySignature })
         setResultsOpen(true)
@@ -2652,13 +2685,27 @@ window.__ModuleLoader__.load({
           setData(null)
           showNotice(t('results.error'))
         } finally {
-          if (abortRef.current === controller) setSearching(false)
+          // Always clear: a superseded request must never leave a skeleton up.
+          setSearching(false)
         }
       }
 
+      // A request that never settles must not leave a skeleton up forever.
+      React.useEffect(() => {
+        if (!searching) return
+        const timer = window.setTimeout(() => {
+          if (abortRef.current) abortRef.current.abort()
+          setSearching(false)
+          setProgress({ pending: 0 })
+          setResultsOpen(false)
+          setError(t('results.timeout'))
+        }, 20_000)
+        return () => window.clearTimeout(timer)
+      }, [searching, t])
+
       // Restoring the last result page needs the history rows, which arrive with
       // the boot reply; wait for them instead of racing them.
-      const restoreRef = React.useRef(initial.resultsOpen && initial.savedId ? String(initial.savedId) : null)
+      const restoreRef = React.useRef(restoreOnOpen ? String(initial.savedId) : null)
       React.useEffect(() => {
         if (!restoreRef.current) return
         const entry = history.find((item) => item && item.id === restoreRef.current)
@@ -2683,14 +2730,13 @@ window.__ModuleLoader__.load({
 
       const goBack = () => {
         if (viewSaved) {
-          const home = homeRef.current
-          homeRef.current = null
+          // The sidebar filters were never touched, so going back is just
+          // closing the page.
           setViewSaved(null)
-          if (home) applyFilters(home)
           setResultsOpen(false)
           setData(null)
           setSavedId(null)
-          lastSearchRef.current = home ? searchSignature(home) : ''
+          lastSearchRef.current = ''
           return
         }
         setResultsOpen(false)
@@ -2812,7 +2858,7 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         {
-          className: 'ds-root' + (Number(blur) > 0 ? ' is-blurred' : ''),
+          className: 'ds-root',
           style: {
             '--ds-blur': blur + 'px',
             '--ds-alpha': alpha + '%',
@@ -3230,53 +3276,6 @@ window.__ModuleLoader__.load({
             checked: props.indexStatus.autoIndex === true,
             onChange: props.onToggleAutoIndex,
           }),
-        ),
-        h(
-          'div',
-          { className: 'ds-section' },
-          h(
-            'div',
-            { className: 'ds-label' },
-            h('span', null, t('appearance')),
-            h(
-              'button',
-              { type: 'button', className: 'ds-label-action', onClick: props.onResetAppearance },
-              t('appearance.reset'),
-            ),
-          ),
-          h(
-            'label',
-            { className: 'ds-range-row' },
-            h('span', null, t('appearance.blur')),
-            h('input', {
-              type: 'range',
-              className: 'ds-range',
-              min: 0,
-              max: 48,
-              step: 1,
-              value: props.blur,
-              'aria-label': t('appearance.blur'),
-              onChange: (event) => props.setBlur(Number(event.target.value)),
-            }),
-            h('span', { className: 'ds-range-value' }, props.blur + 'px'),
-          ),
-          h(
-            'label',
-            { className: 'ds-range-row' },
-            h('span', null, t('appearance.alpha')),
-            h('input', {
-              type: 'range',
-              className: 'ds-range',
-              min: 55,
-              max: 100,
-              step: 1,
-              value: props.alpha,
-              'aria-label': t('appearance.alpha'),
-              onChange: (event) => props.setAlpha(Number(event.target.value)),
-            }),
-            h('span', { className: 'ds-range-value' }, props.alpha + '%'),
-          ),
-          h('div', { className: 'ds-hint' }, t('appearance.hint')),
         ),
         h(
           'div',

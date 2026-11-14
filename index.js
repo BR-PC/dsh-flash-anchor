@@ -28,6 +28,7 @@ const TITLE_CACHE_MS = 30_000
 // still read it fresh, but automatic tracking may lag a few seconds.
 const LIVE_REBUILD_MS = 20_000
 const gzip = promisify(zlib.gzip)
+const gunzip = promisify(zlib.gunzip)
 const CHUNK_SIZE = 4_000
 const CHUNK_OVERLAP = 200
 // A document is never truncated for being long: 256 chunks (≈1 MB) covers any
@@ -120,7 +121,9 @@ async function handleRequest(index, store, request) {
       return json({ ok: true })
     }
     if (action === 'workspaces') {
-      await index.ensureReady()
+      // Deliberately does not wait for the index: the workspace list comes from
+      // the session headers and must work while nothing is indexed yet.
+      await index.ensureSessions()
       return json({ ok: true, workspaces: index.workspaces(), index: index.status() })
     }
     if (action === 'sessions') {
@@ -280,7 +283,8 @@ async function handleRequest(index, store, request) {
         : store.recordSearch(searchRequest, payload, index.snapshotSeqs())
     if (saved) {
       for (const droppedId of store.droppedIds || []) index.dropResolved(droppedId)
-      await store.saveStateNow()
+      // Record asynchronously: the reader should not wait for a 42 kB write.
+      void store.saveStateNow()
     }
     return json({
       ok: true,
@@ -640,7 +644,9 @@ class SearchIndex {
 
   async bootstrap() {
     try {
-      await this.store.load()
+      // The session table is cheap and everything else needs it; load it first
+      // so the workspace list is answerable before a single shard is read.
+      await this.ensureSessions()
       const cached = await this.store.loadIndex()
       if (cached && cached.sessions) {
         this.surfaces = new Map(Object.entries(cached.sessions))
@@ -649,7 +655,6 @@ class SearchIndex {
         // persist instead of being rewritten inside bootstrap.
         if (cached.legacy) for (const id of this.surfaces.keys()) this.dirtySessions.add(id)
       }
-      await this.reloadSessions(true)
       this.pruneRemoved()
       this.countLong()
     } catch (error) {
@@ -666,6 +671,17 @@ class SearchIndex {
   async ensureReady() {
     if (!this.ready) this.ready = this.bootstrap()
     await this.ready
+  }
+
+  /** Only the session table: enough to answer the workspace list. */
+  async ensureSessions() {
+    if (!this.sessionsReady) {
+      this.sessionsReady = (async () => {
+        await this.store.load()
+        await this.reloadSessions(true)
+      })().catch(() => {})
+    }
+    await this.sessionsReady
   }
 
   countLong() {
@@ -2262,7 +2278,7 @@ class StateStore {
   async loadIndex() {
     let manifest
     try {
-      manifest = JSON.parse(zlib.gunzipSync(await fs.readFile(this.indexFile)))
+      manifest = JSON.parse((await gunzip(await fs.readFile(this.indexFile))).toString('utf8'))
     } catch {
       return null
     }
@@ -2271,16 +2287,27 @@ class StateStore {
     if (manifest?.version === 2 && manifest.sessions) return { ...manifest, legacy: true }
     if (manifest?.version !== INDEX_VERSION || !manifest.sessions) return null
     const sessions = {}
-    await Promise.all(
-      Object.entries(manifest.sessions).map(async ([id, entry]) => {
+    // Four shards at a time, asynchronously: the old synchronous gunzip of all
+    // 26 shards blocked the Host event loop for ~320 ms exactly when the panel
+    // opened, which is the stutter that followed every click on the entry. The
+    // reads decompress on the libuv pool, so the UI thread keeps breathing.
+    let cursor = 0
+    const entries = Object.entries(manifest.sessions)
+    const workers = Array.from({ length: Math.min(4, entries.length) }, async () => {
+      while (cursor < entries.length) {
+        const index = cursor
+        cursor += 1
+        const [id, entry] = entries[index]
         try {
-          const parsed = JSON.parse(zlib.gunzipSync(await fs.readFile(this.sessionIndexFile(id))))
+          const parsed = JSON.parse((await gunzip(await fs.readFile(this.sessionIndexFile(id)))).toString('utf8'))
           if (Array.isArray(parsed?.docs)) sessions[id] = { ...entry, ...parsed }
         } catch {
           /* a missing/corrupt shard is simply re-indexed */
         }
-      }),
-    )
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+    })
+    await Promise.all(workers)
     return { version: INDEX_VERSION, savedAt: manifest.savedAt, sessions }
   }
 
