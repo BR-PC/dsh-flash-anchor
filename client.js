@@ -111,7 +111,9 @@ window.__ModuleLoader__.load({
       "file.badge": "文件",
       "kind.reasoning": "思维链",
       "kind.modelText": "正文",
-      "kind.tools": "工具调用",
+      "kind.tools": "工具调用/结果",
+      "kind.toolCall": "工具调用",
+      "kind.toolResult": "工具结果",
       "kind.outputFiles": "输出文件",
       "kind.userText": "输入正文",
       "kind.inputFiles": "输入文件",
@@ -148,6 +150,8 @@ window.__ModuleLoader__.load({
       "jump.searching": "正在定位搜索结果…",
       "jump.found": "已定位并高亮",
       "jump.failed": "已打开会话，但未能定位到该消息",
+      "jump.notOpened": "会话没有打开（可能还在加载），请再点一次",
+      "jump.waitingOpen": "正在等待会话打开…请在左侧点开它，我会自动定位",
       "jump.turn": "第 {turn} 轮",
       "result.turn": "第 {turn} 轮",
       "boot.loading": "正在加载配置…",
@@ -185,7 +189,8 @@ window.__ModuleLoader__.load({
       "ws.hint": "按会话的启动目录筛选",
       "ws.sessions": "个会话",
       "long": "长文",
-      "long.included": "含长文",
+      "long.included": "包含长文内容（较慢）",
+      "long.indexToggle": "长文索引（不参与普通搜索）",
       "long.excluded": "不含长文",
       "long.title": "长文索引",
       "long.ready": "{docs} 段 · {sessions} 个会话",
@@ -295,7 +300,9 @@ window.__ModuleLoader__.load({
       "file.badge": "File",
       "kind.reasoning": "Reasoning",
       "kind.modelText": "Answer",
-      "kind.tools": "Tool",
+      "kind.tools": "Tool calls/results",
+      "kind.toolCall": "Tool call",
+      "kind.toolResult": "Tool result",
       "kind.outputFiles": "Output file",
       "kind.userText": "Prompt",
       "kind.inputFiles": "Input file",
@@ -332,6 +339,8 @@ window.__ModuleLoader__.load({
       "jump.searching": "Locating the search hit…",
       "jump.found": "Located and highlighted",
       "jump.failed": "Session opened, but the message could not be located",
+      "jump.notOpened": "The session did not open (still loading?) — click again",
+      "jump.waitingOpen": "Waiting for the session — open it in the sidebar and I will locate it",
       "jump.turn": "Turn {turn}",
       "result.turn": "Turn {turn}",
       "boot.loading": "Loading preferences…",
@@ -369,7 +378,8 @@ window.__ModuleLoader__.load({
       "ws.hint": "Filter sessions by their working directory",
       "ws.sessions": "sessions",
       "long": "Long text",
-      "long.included": "With long text",
+      "long.included": "Include long text (slower)",
+      "long.indexToggle": "Long-text index (not part of the normal search)",
       "long.excluded": "Without long text",
       "long.title": "Long-text index",
       "long.ready": "{docs} chunks · {sessions} sessions",
@@ -544,7 +554,7 @@ window.__ModuleLoader__.load({
 .ds-skel.short{height:38px;width:62%}
 .ds-notice{position:absolute;left:50%;bottom:16px;z-index:12;transform:translateX(-50%);padding:8px 14px;border-radius:999px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l2,#8ea0c0) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-overlay,#121620) 90%,transparent);backdrop-filter:blur(18px);box-shadow:0 12px 34px rgba(0,0,0,.35);font-size:11px;color:var(--dsw-alias-label-primary,#e8ecf5);animation:ds-rise .2s ease}
 .ds-truncated{padding:4px 18px 12px;font-size:10px;line-height:1.5;color:var(--dsw-alias-state-warn-primary,#d29922)}
-.ds-label-action{border:0;background:transparent;color:var(--dsw-alias-brand-primary,#0ea5e9);font:inherit;font-size:9.5px;letter-spacing:.1px;text-transform:none;cursor:pointer;padding:2px 4px;border-radius:6px}
+.ds-label-action{border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 10%,transparent);color:var(--dsw-alias-brand-primary,#0ea5e9);font:inherit;font-size:12px;letter-spacing:.1px;text-transform:none;cursor:pointer;padding:3px 9px;border-radius:7px}
 .ds-label-action:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 12%,transparent)}
 .ds-range-row{display:grid;grid-template-columns:52px 1fr 36px;align-items:center;gap:7px;margin:7px 0;font-size:10.5px;color:var(--dsw-alias-label-secondary,#98a6bf)}
 .ds-range{width:100%;height:16px;margin:0;accent-color:var(--dsw-alias-brand-primary,#0ea5e9);cursor:pointer}
@@ -818,6 +828,20 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Wait until the *target* session is the one on screen.
+     *
+     * A click opens the session asynchronously; the Chat DOM of the previously
+     * open session is still mounted for a while, so "a chat exists" is not
+     * "this chat exists". Resolving keys against the wrong transcript is what
+     * made every jump land in the previous session and time out as not-mounted.
+     */
+    async function waitForSessionView(ctx, sessionId, deadline) {
+      const timeout = Math.max(300, deadline - Date.now())
+      const opened = await waitForMatch(() => chatSnapshot(ctx, sessionId), timeout, 90)
+      return opened !== null
+    }
+
+    /**
      * Walk the virtualized transcript toward one Turn so its rows mount. The
      * rail is the fast path; this covers views whose rail is absent or whose
      * mark list has not materialized yet.
@@ -835,12 +859,31 @@ window.__ModuleLoader__.load({
       const last = Math.max(...mounted)
       const view = Number(scroller.clientHeight) || 0
       const total = Number(scroller.scrollHeight) || 0
-      const step = Math.max(160, Math.round(view * 0.85))
+      const step = Math.max(200, Math.round(view * 0.85))
       const current = Number(scroller.scrollTop) || 0
+      // A window of mounted Turns is a sample, not a map: the target can be many
+      // screens away, and creeping one viewport per attempt never arrives before
+      // the budget expires (this is why turn 12 of a long session never mounted).
+      // Walk in proportion to the distance, and go to the end when it is far.
+      const gapBelow = target < first ? first - target : 0
+      const gapAbove = target > last ? target - last : 0
       let next = null
-      if (target < first) next = Math.max(0, current - step)
-      else if (target > last) next = Math.min(Math.max(0, total - view), current + step)
-      if (next === null || Math.abs(next - current) < 4) return false
+      if (gapBelow > 0) {
+        const far = gapBelow > 2 || view * 3 < current
+        next = far ? Math.max(0, current - Math.max(step * 3, Math.round(total * 0.35))) : Math.max(0, current - step)
+      } else if (gapAbove > 0) {
+        const far = gapAbove > 2
+        next = Math.min(
+          Math.max(0, total - view),
+          far ? current + Math.max(step * 3, Math.round(total * 0.35)) : current + step,
+        )
+      }
+      if (next === null || Math.abs(next - current) < 4) {
+        // Already parked at the edge the target lives past: nothing to nudge.
+        if (gapBelow > 0 && current <= 0) return false
+        if (gapAbove > 0 && current >= total - view - 4) return false
+        return false
+      }
       scroller.scrollTop = next
       await settleFrames(1)
       return true
@@ -922,11 +965,13 @@ window.__ModuleLoader__.load({
     function flowKindsFor(target) {
       switch (String((target && target.kind) || '')) {
         case 'userText':
-          return ['user', 'steering', 'context', 'command', 'turn-trigger']
+          return ['user', 'steering', 'command', 'turn-trigger']
         case 'inputFiles':
-          return ['user', 'steering', 'context', 'command', 'turn-trigger']
+          return ['user', 'steering', 'command', 'turn-trigger']
+        // Injected context renders as its own row. Letting 'user' in here is how
+        // a context hit landed on the user's own "在吗？" bubble in the same turn.
         case 'context':
-          return ['context', 'user', 'steering', 'command', 'turn-trigger']
+          return ['context']
         case 'reasoning':
         case 'modelText':
           return ['assistant-step']
@@ -1602,6 +1647,42 @@ window.__ModuleLoader__.load({
       }, 6500)
     }
 
+    /**
+     * Acquire one session the way the Client really exposes it.
+     *
+     * `sessions.binding(id)` is only a *borrow*: it answers for a generation
+     * somebody else already holds and returns undefined otherwise. A plugin that
+     * navigates has to retain the session itself, await `ready`, and release it.
+     * Calling binding() alone is what made every jump fail with
+     * "no-session-binding" after the Client moved to retain/release.
+     */
+    function acquireSession(ctx, sessionId) {
+      const sessions = ctx && ctx.sessions
+      if (!sessions || !sessionId) return null
+      // Best effort only: a borrowed binding may be undefined (nobody holds a
+      // generation) and that must never block the jump. The DOM is the source of
+      // truth; the binding only adds optional loadThrough paging.
+      if (typeof sessions.retain === 'function') {
+        // The source must be one the Client knows; 'mainView' is what
+        // uiWorkspace.replaceMain itself uses for navigation.
+        for (const source of ['mainView', 'gateway']) {
+          try {
+            const reference = sessions.retain(sessionId, { source })
+            if (reference && reference.binding) return { binding: reference.binding, release: () => reference.release() }
+          } catch {
+            /* try the next source, then the borrow */
+          }
+        }
+      }
+      try {
+        const binding = typeof sessions.binding === 'function' ? sessions.binding(sessionId) : null
+        if (binding) return { binding, release() {} }
+      } catch {
+        /* no retained generation */
+      }
+      return null
+    }
+
     async function loadThroughSeq(binding, seq) {
       const target = finiteNumber(seq)
       if (target === null) return false
@@ -1614,7 +1695,11 @@ window.__ModuleLoader__.load({
         if (covered) return true
         if (typeof binding.session.loadThrough === 'function') {
           await binding.session.loadThrough(target)
-          return true
+          // "It did not throw" is not "it loaded": re-read the snapshot before
+          // claiming success, otherwise the retry loop never tries again.
+          const after = binding.eventSource.getSnapshot()
+          const rows = Array.isArray(after.entries) ? after.entries : []
+          return rows.some((entry) => entry.type === 'event' && entry.event && Number(entry.event.seq) >= target)
         }
       } catch {
         /* the rail can still page an unloaded Turn by itself */
@@ -1683,9 +1768,26 @@ window.__ModuleLoader__.load({
         ok: false,
       }
       const started = Date.now()
+      let reference = null
       try {
-        const binding = await waitForMatch(() => ctx.sessions.binding(target.sessionId), 6000)
-        if (!binding) throw new Error('no-session-binding')
+        reference = acquireSession(ctx, target.sessionId)
+        const binding = reference ? reference.binding : null
+        trace.retained = binding !== null
+        // Wait for THIS session's transcript, not merely for a transcript.
+        // Waiting for the wrong session is the slowest possible mistake; give
+        // the view a shorter first window and keep the rest for locating.
+        // One long wait, no second navigation call. Re-calling openSession while
+        // a big session is still loading restarts that load and lands the app on
+        // an empty view — the "click opens a blank session" report.
+        trace.sessionView = await waitForSessionView(ctx, target.sessionId, Date.now() + 8_000)
+        if (!trace.sessionView) {
+          // Some ids (subagent addresses) cannot be opened with a plain
+          // openSession. Ask for one manual click and keep watching for it: the
+          // reader's own click always works, and then the locate finishes.
+          jumpStore.set({ state: 'jumping', message: t('jump.waitingOpen') })
+          trace.sessionView = await waitForSessionView(ctx, target.sessionId, Date.now() + 20_000)
+        }
+        if (!trace.sessionView) throw new Error('session-not-opened')
         trace.keyExpected = nodeKeyOfAnchor(target)
         let resolved = resolveNodeKey(ctx, target)
         trace.keyHow = resolved.how
@@ -1698,8 +1800,10 @@ window.__ModuleLoader__.load({
         // literally contains the hit text is acceptable — never a same-Turn
         // neighbour, which is how "jumped somewhere unrelated" came back.
         let row = pickSeatRow(resolved.key, target)
-        if (row) trace.pickHow = 'key'
-        else if (resolved.key) {
+        if (row) {
+          trace.pickHow = 'key'
+          trace.pickedFlow = flowKindOf(row)
+        } else if (resolved.key) {
           row = pickRowByText(target, turn)
           if (row) trace.pickHow = 'turn-text'
         } else {
@@ -1738,7 +1842,7 @@ window.__ModuleLoader__.load({
               row = await waitForRow(resolved.key, target, 260)
               if (row) break
             }
-            if (!trace.loadedThrough) {
+            if (!trace.loadedThrough && binding) {
               trace.loadedThrough = await loadThroughSeq(binding, target.seq)
               row = await waitForRow(resolved.key, target, 300)
               if (row) break
@@ -1752,9 +1856,9 @@ window.__ModuleLoader__.load({
             ].join(':')
             idle = row ? 0 : before === after ? idle + 1 : 0
             trace.turnRows = rowsOfTurn(turn).length
-            // Six stalls in a row mean the Turn cannot be mounted at all; say
-            // so instead of spinning out the whole budget.
-            if (idle >= 6) break
+            // Stalls only mean "keep walking": a long transcript needs several
+            // big scrolls before the Turn mounts. Give up only after many.
+            if (idle >= 16) break
             if (!row) await delay(120)
           }
         }
@@ -1784,6 +1888,12 @@ window.__ModuleLoader__.load({
             if (fresh) row = fresh
             found = findBlockInRow(row, target)
           }
+        }
+        // Never claim success while the app is not actually showing a transcript:
+        // the stale toast on an empty page is exactly what "已定位并高亮 但什么
+        // 都没发生" looked like.
+        if (!chatSnapshot(ctx, target.sessionId) || document.querySelectorAll('[data-chat-turn]').length === 0) {
+          throw new Error('session-not-opened')
         }
         const block = found.element || row
         highlightJumpBlock(block, target, found.needle)
@@ -1815,8 +1925,21 @@ window.__ModuleLoader__.load({
         trace.ms = Date.now() - started
         reportJump(trace)
         console.warn('[flash-anchor] could not locate the search hit:', error)
-        jumpStore.set({ state: 'failed', message: t('jump.failed') })
+        jumpStore.set({
+          state: 'failed',
+          // Say what actually failed: a session that never opened is a different
+          // problem from a message that was not found.
+          message: String((error && error.message) || '') === 'session-not-opened' ? t('jump.notOpened') : t('jump.failed'),
+        })
         window.setTimeout(() => jumpStore.set({ state: 'idle', message: '' }), 4600)
+      } finally {
+        if (reference && typeof reference.release === 'function') {
+          try {
+            reference.release()
+          } catch {
+            /* releasing a stale reference is harmless */
+          }
+        }
       }
     }
 
@@ -2227,11 +2350,26 @@ window.__ModuleLoader__.load({
       const [workspaces, setWorkspaces] = React.useState([])
       const [log, setLog] = React.useState({ enabled: true, path: '', bytes: 0 })
       const [data, setData] = React.useState(null)
-      // A result page can only be restored when there is a saved page to restore;
-      // "results open" without an id would open a skeleton that never fills.
-      const restoreOnOpen = Boolean(initial.resultsOpen && initial.savedId)
-      const [searching, setSearching] = React.useState(restoreOnOpen)
-      const [resultsOpen, setResultsOpen] = React.useState(restoreOnOpen)
+      // Reopening must show the page the reader left, even when that search was
+      // never snapshotted (partial page). The in-memory page is enough.
+      const restoreOnOpen = Boolean(initial.resultsOpen)
+      const initialSignature = React.useMemo(
+        () =>
+          searchSignature({
+            query: initial.query,
+            scopeMode: initial.scopeMode,
+            selectedSession: initial.selectedSession,
+            types: initial.types,
+            ext: initial.ext,
+            sort: initial.sort,
+            timeOrder: initial.timeOrder,
+            workspace: initial.workspace,
+            long: initial.long,
+          }),
+        [],
+      )
+      const [searching, setSearching] = React.useState(false)
+      const [resultsOpen, setResultsOpen] = React.useState(false)
       const [progress, setProgress] = React.useState({ pending: 0 })
       const [error, setError] = React.useState(null)
       const [notice, setNotice] = React.useState(null)
@@ -2593,7 +2731,9 @@ window.__ModuleLoader__.load({
             pendingRef.current = Number(near.payload.pending) || 0
             setProgress({ pending: pendingRef.current })
             remember(near.payload, signature)
-            if (Array.isArray(near.payload.history)) setHistory(near.payload.history)
+            // The cached payload carries the history as it was when cached; do
+            // not let it overwrite rows created since.
+            void refreshHistory()
             if (near.payload.index) setIndexStatus((current) => ({ ...current, ...near.payload.index }))
             return near.payload
           }
@@ -2806,9 +2946,24 @@ window.__ModuleLoader__.load({
         return () => window.clearTimeout(timer)
       }, [searching, t])
 
-      // Restoring the last result page needs the history rows, which arrive with
-      // the boot reply; wait for them instead of racing them.
-      const restoreRef = React.useRef(restoreOnOpen ? String(initial.savedId) : null)
+      // First choice: the page is still in memory from this session. It is
+      // shown immediately and needs no host round trip at all.
+      const restoreRef = React.useRef(null)
+      const restoredFromCache = React.useRef(false)
+      React.useEffect(() => {
+        if (!restoreOnOpen) return
+        if (resultCache.payload && resultCache.signature === initialSignature) {
+          restoredFromCache.current = true
+          lastSearchRef.current = initialSignature
+          setData(resultCache.payload)
+          setSavedId(resultCache.savedId || null)
+          setResultsOpen(true)
+          setSearching(false)
+          return
+        }
+        if (initial.savedId) restoreRef.current = String(initial.savedId)
+      }, [])
+
       React.useEffect(() => {
         if (!restoreRef.current) return
         const entry = history.find((item) => item && item.id === restoreRef.current)
@@ -2821,6 +2976,10 @@ window.__ModuleLoader__.load({
           }
           return
         }
+        if (restoredFromCache.current) {
+          restoreRef.current = null
+          return
+        }
         restoreRef.current = null
         void loadSaved(entry)
       }, [history])
@@ -2831,7 +2990,18 @@ window.__ModuleLoader__.load({
         return null
       }
 
+      const refreshHistory = React.useCallback(async () => {
+        try {
+          const payload = await api({ action: 'state' })
+          if (payload && payload.state && Array.isArray(payload.state.history)) setHistory(payload.state.history)
+        } catch {
+          /* a stale list is better than an error toast */
+        }
+      }, [])
+
       const goBack = () => {
+        // The home list must be current the moment it is shown again.
+        void refreshHistory()
         if (viewSaved) {
           // The sidebar filters were never touched, so going back is just
           // closing the page.
@@ -2882,7 +3052,17 @@ window.__ModuleLoader__.load({
         try {
           if (!ctx.uiWorkspace || typeof ctx.uiWorkspace.openSession !== 'function') throw new Error('navigation unavailable')
           const queryText = data && typeof data.query === 'string' ? data.query : ''
-          ctx.uiWorkspace.openSession(item.sessionId)
+          // An archived session opens, renders, and is then cleared by the
+          // Client's own archived-current check — which reads as "it located and
+          // then bounced me back to the new-session screen". Unarchive first.
+          const navigate = () => ctx.uiWorkspace.openSession(item.sessionId)
+          if (typeof ctx.uiWorkspace.unarchiveSession === 'function') {
+            void Promise.resolve(ctx.uiWorkspace.unarchiveSession(item.sessionId))
+              .catch(() => {})
+              .then(navigate, navigate)
+          } else {
+            navigate()
+          }
           onClose()
           void jumpToHit(
             ctx,
@@ -3345,12 +3525,15 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+          // Long text is not a message type: it is a second index, so it gets its
+          // own labelled row instead of sitting inside the type chips.
+          h('div', { className: 'ds-hint', style: { margin: '12px 0 6px' } }, t('long.indexToggle')),
           h(
             'div',
-            { className: 'ds-chips', style: { marginTop: '8px' } },
+            { className: 'ds-chips' },
             h(TypeChip, {
               kind: 'long',
-              label: t('long'),
+              label: t('long.included'),
               active: props.long === true,
               onToggle: props.onToggleLong,
             }),
@@ -3787,7 +3970,17 @@ window.__ModuleLoader__.load({
                           h(
                             'div',
                             { className: 'ds-result-top' },
-                            h('span', { className: 'ds-kind', style: { '--k': kindColor(item.kind) } }, kindLabel(t, item.kind)),
+                            h(
+                              'span',
+                              { className: 'ds-kind', style: { '--k': kindColor(item.kind) } },
+                              // A tool *result* labelled "tool call" is how a 4 KB
+                              // report looked like a command.
+                              item.kind === 'tools' && item.subtype === 'result'
+                                ? t('kind.toolResult')
+                                : item.kind === 'tools' && item.subtype === 'call'
+                                  ? t('kind.toolCall')
+                                  : kindLabel(t, item.kind),
+                            ),
                             item.long ? h('span', { className: 'ds-badge is-long' }, t('long')) : null,
                             item.toolName ? h('span', { className: 'ds-toolname' }, item.toolName) : null,
                             item.turn ? h('span', { className: 'ds-turn' }, t('result.turn', { turn: item.turn })) : null,

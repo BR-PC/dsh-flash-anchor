@@ -14,6 +14,7 @@ const HELPERS = [
   'chatScroller',
   'chatViewState',
   'waitForChatView',
+  'waitForSessionView',
   'nudgeTranscript',
   'clickTurnMark',
   'delay',
@@ -64,6 +65,7 @@ const HELPERS = [
   'loadThroughSeq',
   'waitForRow',
   'reportJump',
+  'acquireSession',
   'jumpToHit',
   'basename',
 ]
@@ -406,7 +408,7 @@ function buildSnapshot() {
   return { order, nodes }
 }
 
-function createRuntime(scene) {
+function createRuntime(scene, options = {}) {
   const diags = []
   const store = { current: null }
   const apiPost = (params, body) => {
@@ -444,11 +446,17 @@ function createRuntime(scene) {
     apiPost,
     quiet,
   )
+  // The fake event source must reflect what loadThrough actually loaded: the
+  // client now verifies coverage instead of trusting "it did not throw".
+  const loadedEntries = []
   const binding = {
-    eventSource: { getSnapshot: () => ({ entries: [] }) },
+    eventSource: { getSnapshot: () => ({ entries: loadedEntries }) },
     session: {
       async loadThrough(seq) {
         if (Number(seq) >= 250 && Number(seq) < 400) scene.appendTurn6()
+        if (!loadedEntries.some((entry) => entry.event && entry.event.seq >= Number(seq))) {
+          loadedEntries.push({ type: 'event', event: { seq: Number(seq) } })
+        }
       },
     },
   }
@@ -462,7 +470,12 @@ function createRuntime(scene) {
     get(name) {
       return name === 'uiConversation' ? conversation : undefined
     },
-    sessions: { binding: () => binding },
+    // Mirror the real contract: retain() hands back a reference whose .ready
+    // settles with the binding, and binding() alone is only a borrow.
+    sessions: options.sessions || {
+      retain: () => ({ sessionId: 's1', binding, ready: Promise.resolve(binding), release() {} }),
+      binding: () => binding,
+    },
     uiConversation: conversation,
   }
   const t = (key) => key
@@ -1045,6 +1058,29 @@ function record(name) {
   assert.ok(diag.blockText.indexOf('北京今天的天气') !== -1, 'landed on the wrong block: ' + diag.blockText)
   assertCentered(diag, 'stale key falls back to text')
   record('stale key falls back to the message text')
+}
+
+
+// 25. The sessions service is gone (or never retained this id): the jump must
+//     still work from the DOM instead of failing on a borrowed binding.
+{
+  const scene = buildScene()
+  const harness = createRuntime(scene, { sessions: {} })
+  const diag = await runJump(harness, {
+    sessionId: 's1',
+    kind: 'userText',
+    turn: 1,
+    seq: 1,
+    messageId: 'u-1',
+    anchor: { turn: 1, seq: 1, messageId: 'u-1', blockIndex: 0, blockKind: 'text', chunk: 0 },
+    fragment: '北京今天的天气',
+    query: '北京今天的天气',
+  })
+  assert.ok(diag, 'no-sessions: no diagnostic')
+  assert.equal(diag.ok, true, 'the jump must not depend on the sessions service: ' + diagnose(diag))
+  assert.equal(diag.retained, false)
+  assertCentered(diag, 'no sessions service')
+  record('jumps without the sessions service')
 }
 
 console.log('deepsearch locate contracts: ok (' + checks.length + ' scenarios)')

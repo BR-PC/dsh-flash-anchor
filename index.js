@@ -22,7 +22,11 @@ const STATE_VERSION = 1
 // docs without them and could alias two blocks.
 // 3: the index is a manifest plus one gzip shard per session, so a live
 // update rewrites a few hundred KB instead of the whole corpus.
-const INDEX_VERSION = 4
+// 4: long documents split into their own shards.
+// 5: injected context is its own doc kind. Bump this whenever buildSurfaceDocs
+//    changes how it classifies documents — otherwise the stale shards are
+//    reused and the fix silently does nothing on an existing install.
+const INDEX_VERSION = 5
 const TITLE_CACHE_MS = 30_000
 // Background reindexing of a streaming session is a CPU furnace; searches
 // still read it fresh, but automatic tracking may lag a few seconds.
@@ -995,6 +999,11 @@ class SearchIndex {
 
   async searchOnce({ q, scope, workspace, long, types, exts, sort, limit, threads, sig }) {
     const started = Date.now()
+    // Titles are cosmetic but the Client groups results by them; without this a
+    // fast first search showed the first user line instead of the session title.
+    if (this.titlePromise && !this.titles.size) {
+      await Promise.race([this.titlePromise.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 300))])
+    }
     const ensureStarted = Date.now()
     await this.ensureReady()
     const ensureMs = Date.now() - ensureStarted
@@ -1096,7 +1105,9 @@ class SearchIndex {
     } else {
       const scanRequest = { types: ALL_TYPES, exts: [], fileOnly: false, qLower }
       matches = null
-      if (requestedThreads > 1 && docs.length >= WORKER_MIN_DOCS && this.pool) {
+      // Long documents are huge; copying them into worker threads costs seconds
+      // for the structured clone alone. Scan those requests inline instead.
+      if (!long && requestedThreads > 1 && docs.length >= WORKER_MIN_DOCS && this.pool) {
         matches = await this.pool.search(scanRequest, requestedThreads, docs, this.corpusVersion)
         mode = matches ? 'worker' : 'inline-fallback'
       } else if (requestedThreads > 1) {
@@ -1625,7 +1636,10 @@ function buildSurfaceDocs(snapshot, record) {
     if (!clean.trim()) return
     const capped = clean.length > CHUNK_SIZE * MAX_CHUNKS ? clean.slice(0, CHUNK_SIZE * MAX_CHUNKS) : clean
     if (capped.length < clean.length) docs.truncated = true
-    const isLong = clean.length > LONG_MIN_CHARS
+    // Injected context (compaction checkpoints especially) can be tens of KB of
+    // harness scaffolding. Its tail is noise, and keeping it in the long index
+    // made a long search read megabytes for nothing.
+    const isLong = clean.length > LONG_MIN_CHARS && kind !== 'context'
     let offset = 0
     let chunk = 0
     do {

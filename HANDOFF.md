@@ -1,9 +1,42 @@
 # FlashAnchor 交接文档
 
 > 更新时间：2026-11-15
-> 版本：**1.8.2**（已安装；Host 半改动必须重启 DSH Desktop 生效）
+> 版本：**1.8.3**（本地已安装，**未推送**；Host 半改动必须重启 DSH Desktop 生效）
 > 仓库：https://github.com/BR-PC/dsh-flash-anchor
 > 实现：DeepSeek-V4.1-Flash-1017（AI agent）；产品设计/测试/验收：BR-PC
+
+## 0. 1.8.3：跳转全废的真因 —— Client 的 sessions 契约是 retain，不是 binding
+
+日志证据（`diagnostics.log`）：
+
+```json
+{"type":"client:jump","turn":3,"kind":"tools","reason":"no-session-binding","ms":6007,"viewport":924}
+{"type":"client:jump","turn":3,"step":4,"reason":"not-mounted","turnRows":0,"rowsTotal":0,"ms":11697}
+```
+
+`ctx.sessions.binding(id)` 只是**借用**（"Borrow an already-retained Session binding"），
+没有别人 retain 时就返回 undefined。旧代码拿它当“打开会话”，于是永远等不到 → 6 秒超时 → `no-session-binding`，
+后续所有逻辑（滚动、展开、定位）全部落空。Client 换到 retain/release 之后必然复现。
+
+正确姿势（Client 契约）：
+
+```ts
+interface SessionReference { readonly binding: SessionBinding; readonly ready: Promise<SessionBinding>; release(): void }
+ctx.sessions.retain(id, { source: 'gateway' })  // 立刻返回 reference
+await reference.ready                          // 真正的 binding
+try { ... } finally { reference.release() }
+```
+
+修法：新增 `acquireSession()`（retain → 竞速 ready 6s → 释放；老版本回退 binding），
+`jumpToHit` 的 finally 里必定 release。诊断新增 `retained`。
+
+**为什么测试没抓到**：假 DOM 的 `ctx.sessions.binding: () => binding` 永远返回值，
+等于把 bug 挡在测试之外。现在 harness 改为
+`retain() -> { binding, ready: Promise.resolve(binding), release() }`，并新增第 25 个场景
+「没有 retained generation 时必须 1.5s 内报 no-session-binding，不许挂死」。
+
+**同版修正**：`tools` 行不再一律写“工具调用”，`subtype === 'result'` 显示「工具结果」，
+筛选 chip 文案改为「工具调用/结果」。这就是“工具调用里全是正文”的来源。
 
 ## 0. 1.8.2：上下文注入不再算“输入正文”
 
