@@ -531,7 +531,7 @@ window.__ModuleLoader__.load({
 .ds-avatar{width:29px;height:29px;flex:none;border-radius:10px;display:grid;place-items:center;font-size:11.5px;font-weight:700;color:#fff;background:linear-gradient(135deg,#0ea5e9,#2563eb);box-shadow:0 4px 12px rgba(14,165,233,.28)}
 .ds-group-title{font-size:12px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:620px}
 .ds-group-meta{font-size:9.5px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
-.ds-result{display:flex;flex-direction:column;gap:5px;width:100%;margin:0 0 6px;padding:9px 11px;border-radius:11px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 20%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 24%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);text-align:left;font:inherit;cursor:pointer;transition:background .15s,border-color .15s,transform .15s}
+.ds-result{display:flex;flex-direction:column;gap:5px;width:100%;margin:0 0 6px;padding:9px 11px;border-radius:11px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 20%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 24%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);text-align:left;font:inherit;cursor:pointer;content-visibility:auto;contain-intrinsic-size:auto 92px;transition:background .15s,border-color .15s,transform .15s}
 .ds-result:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 9%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 34%,transparent);transform:translateY(-1px)}
 .ds-result:focus-visible{outline:2px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 70%,transparent);outline-offset:1px}
 .ds-result-top{display:flex;align-items:center;gap:7px;min-width:0}
@@ -3763,6 +3763,51 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // Memoised row: the deck re-renders on every indexing-progress tick, and
+    // rebuilding hundreds of snippets (highlight scan + date formatting) inside
+    // a scroll frame was the visible stutter. Stable props let React bail out.
+    const ResultRow = React.memo(function ResultRow(props) {
+      const { item, t, query, onOpen } = props
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: 'ds-result',
+          'aria-label': t('result.open'),
+          onClick: () => onOpen(item),
+        },
+        h(
+          'div',
+          { className: 'ds-result-top' },
+          h(
+            'span',
+            { className: 'ds-kind', style: { '--k': kindColor(item.kind) } },
+            // A tool *result* labelled "tool call" is how a 4 KB report looked
+            // like a command.
+            item.kind === 'tools' && item.subtype === 'result'
+              ? t('kind.toolResult')
+              : item.kind === 'tools' && item.subtype === 'call'
+                ? t('kind.toolCall')
+                : kindLabel(t, item.kind),
+          ),
+          item.long ? h('span', { className: 'ds-badge is-long' }, t('long')) : null,
+          item.toolName ? h('span', { className: 'ds-toolname' }, item.toolName) : null,
+          item.turn ? h('span', { className: 'ds-turn' }, t('result.turn', { turn: item.turn })) : null,
+          h('span', { className: 'ds-time', title: new Date(item.time).toLocaleString() }, relativeTime(t, item.time)),
+        ),
+        h('div', { className: 'ds-snippet' }, h(Highlight, { text: item.snippet, query })),
+        item.files && item.files.length
+          ? h(
+              'div',
+              { className: 'ds-files' },
+              item.files.slice(0, 3).map((file, index) =>
+                h('span', { key: index, className: 'ds-file-chip' }, h(FileIcon, { size: 10 }), file.name || basename(file.path)),
+              ),
+            )
+          : null,
+      )
+    })
+
     function ResultsDeck(props) {
       const { t, data, searching, error } = props
       // A payload is only this filter set's page when its signature says so.
@@ -3807,7 +3852,13 @@ window.__ModuleLoader__.load({
         return result
       }, [view, shown])
       const remaining = items.length - shown.length
-      const goMore = () => setVisible((value) => value + PAGE_SIZE)
+      // Rows must keep the same handler identity, or every host progress tick
+      // invalidates memo() on all of them.
+      const openRef = React.useRef(props.onOpen)
+      openRef.current = props.onOpen
+      const openItem = React.useCallback((item) => openRef.current(item), [])
+      const goMore = React.useCallback(() => setVisible((value) => value + PAGE_SIZE), [])
+      const moreAt = React.useRef(0)
       const longCta =
         props.canSearchLong === true
           ? h(
@@ -3935,6 +3986,11 @@ window.__ModuleLoader__.load({
                       const node = event.currentTarget
                       if (remaining <= 0) return
                       if (node.scrollTop + node.clientHeight < node.scrollHeight - 240) return
+                      // Growing the list on every scroll event re-rendered the
+                      // whole page mid-flick; one growth per 300ms is enough.
+                      const now = Date.now()
+                      if (now - moreAt.current < 300) return
+                      moreAt.current = now
                       goMore()
                     },
                   },
@@ -3958,50 +4014,7 @@ window.__ModuleLoader__.load({
                         ),
                       ),
                       group.items.map((item) =>
-                        h(
-                          'button',
-                          {
-                            key: item.id,
-                            type: 'button',
-                            className: 'ds-result',
-                            'aria-label': t('result.open'),
-                            onClick: () => props.onOpen(item),
-                          },
-                          h(
-                            'div',
-                            { className: 'ds-result-top' },
-                            h(
-                              'span',
-                              { className: 'ds-kind', style: { '--k': kindColor(item.kind) } },
-                              // A tool *result* labelled "tool call" is how a 4 KB
-                              // report looked like a command.
-                              item.kind === 'tools' && item.subtype === 'result'
-                                ? t('kind.toolResult')
-                                : item.kind === 'tools' && item.subtype === 'call'
-                                  ? t('kind.toolCall')
-                                  : kindLabel(t, item.kind),
-                            ),
-                            item.long ? h('span', { className: 'ds-badge is-long' }, t('long')) : null,
-                            item.toolName ? h('span', { className: 'ds-toolname' }, item.toolName) : null,
-                            item.turn ? h('span', { className: 'ds-turn' }, t('result.turn', { turn: item.turn })) : null,
-                            h('span', { className: 'ds-time', title: new Date(item.time).toLocaleString() }, relativeTime(t, item.time)),
-                          ),
-                          h('div', { className: 'ds-snippet' }, h(Highlight, { text: item.snippet, query: view.query })),
-                          item.files && item.files.length
-                            ? h(
-                                'div',
-                                { className: 'ds-files' },
-                                item.files.slice(0, 3).map((file, index) =>
-                                  h(
-                                    'span',
-                                    { key: index, className: 'ds-file-chip' },
-                                    h(FileIcon, { size: 10 }),
-                                    file.name || basename(file.path),
-                                  ),
-                                ),
-                              )
-                            : null,
-                        ),
+                        h(ResultRow, { key: item.id, item, query: view.query, t, onOpen: openItem }),
                       ),
                     ),
                   ),

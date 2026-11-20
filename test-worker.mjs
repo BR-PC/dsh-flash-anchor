@@ -89,6 +89,9 @@ const workerResult = await index.search(__test.parseSearchRequest(new URLSearchP
 assert.equal(workerResult.mode, 'worker', 'host did not use the worker path: ' + workerResult.mode)
 assert.ok(workerResult.items.length > 100)
 index.pool.fail(new Error('ERR_WORKER_OUT_OF_MEMORY'))
+// The identical query above is memoised; a cached replay never reaches the pool,
+// so the degraded path would go untested. Clear it to hit the dead pool for real.
+index.queryCache.clear()
 const fallback = await index.search(__test.parseSearchRequest(new URLSearchParams({ q: 'gamma', threads: '2' })))
 assert.equal(fallback.mode, 'inline-fallback')
 assert.equal(fallback.total, workerResult.total, 'fallback changed the total')

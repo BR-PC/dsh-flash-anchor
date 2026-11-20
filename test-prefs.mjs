@@ -76,7 +76,9 @@ assert.equal(loaded.ext, 'md, pdf')
 assert.equal(loaded.sort, 'time')
 assert.equal(loaded.timeOrder, 'asc')
 assert.equal(loaded.query, 'handoff')
-assert.equal(loaded.blur, 20)
+// v1.7.0 pinned blur to 0: a full-viewport backdrop-filter was a stutter source,
+// so a previously saved blur value must never be restored.
+assert.equal(loaded.blur, 0)
 assert.equal(loaded.alpha, 70)
 assert.equal(loaded.speculative, true)
 assert.equal(loaded.scatter, false)

@@ -19,16 +19,7 @@ jobs:
           node --check search-core.js
           node --check search-pool.js
           node --check worker.js
+      # One gate: the runner enumerates every test-*.mjs and exits non-zero on
+      # any failure, so a new test can never be left off the list.
       - name: Contracts
-        run: |
-          node test-core.mjs
-          node test-state.mjs
-          node test-events.mjs
-          node test-prefs.mjs
-          node test-order.mjs
-          node test-worker.mjs
-          node test-locate.mjs
-          node test-i18n.mjs
-          node test-v17.mjs
-          node --expose-gc test-memory.mjs
-          node test-stress.mjs
+        run: node run-tests.mjs

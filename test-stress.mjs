@@ -154,7 +154,8 @@ for (const scope of [null, 'sess-0', 'sess-16', 'missing-session']) {
 console.log('filter permutations', combos, 'slowest', slowest + 'ms')
 assert.ok(slowest < 1200, 'slowest search ' + slowest + 'ms')
 
-// history keeps exactly one row per query no matter how the filters change
+// v1.8.1 contract: one row per query + filter set. A filter change is its own
+// row; deleting one row must never take the sibling rows with it.
 const requests = [
   parseSearchRequest(new URLSearchParams('q=deploy&types=modelText&sort=relevance')),
   parseSearchRequest(new URLSearchParams('q=deploy&types=reasoning&sort=time')),
@@ -162,19 +163,20 @@ const requests = [
   parseSearchRequest(new URLSearchParams('q=other query&types=modelText')),
 ]
 for (const request of requests) store.recordSearch(request, { total: 1, items: [], sessions: [] })
-assert.equal(store.state.history.filter((item) => item.query === 'deploy').length, 1)
-assert.equal(store.state.history.length, 2)
-const deployEntry = store.state.history.find((item) => item.query === 'deploy')
+assert.equal(store.state.history.filter((item) => item.query === 'deploy').length, 3)
+assert.equal(store.state.history.length, 4)
+const deployEntry = store.state.history.find((item) => item.query === 'deploy' && item.sort === 'time-asc')
 assert.equal(store.savedSearch(deployEntry.id).request.sort, 'time-asc')
 await store.saveStateNow()
 
 const reopened = new StateStore()
 await reopened.load()
-assert.equal(reopened.state.history.filter((item) => item.query === 'deploy').length, 1)
-assert.equal(reopened.state.history.length, 2)
+assert.equal(reopened.state.history.filter((item) => item.query === 'deploy').length, 3)
+assert.equal(reopened.state.history.length, 4)
 
 reopened.deleteSaved(deployEntry.id)
-assert.equal(reopened.state.history.some((item) => item.query === 'deploy'), false)
+assert.equal(reopened.state.history.some((item) => item.id === deployEntry.id), false)
+assert.equal(reopened.state.history.filter((item) => item.query === 'deploy').length, 2)
 assert.equal(reopened.savedSearch(deployEntry.id), null)
 
 // prefs round-trip is what restores the previous result page

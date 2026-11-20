@@ -6,3 +6,5 @@ errors.log*
 state.json
 index.json.gz
 docs/
+# Working notes for the maintainer, never part of the published package.
+HANDOFF.md

@@ -2,7 +2,10 @@
 // indexes written before 1.4.2; subtype/fileIndex keep those distinct too.
 export function docKey(sessionId, doc) {
   const block = doc.blockIndex == null ? '-' : doc.blockIndex
-  const chunk = doc.chunk == null ? 0 : doc.chunk
+  // chunk 0 is the first slice of a long block; null means the block was never
+  // sliced. Folding both onto 0 gave them the same address, so an index holding
+  // both silently kept only one. '-' cannot be a real chunk index.
+  const chunk = doc.chunk == null ? '-' : doc.chunk
   return sessionId + ':' + doc.seq + ':' + block + ':' + chunk + ':' + doc.kind + ':' + (doc.subtype || '') + ':' + (doc.fileIndex == null ? '' : doc.fileIndex)
 }
 

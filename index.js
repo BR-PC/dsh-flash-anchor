@@ -26,7 +26,7 @@ const STATE_VERSION = 1
 // 5: injected context is its own doc kind. Bump this whenever buildSurfaceDocs
 //    changes how it classifies documents — otherwise the stale shards are
 //    reused and the fix silently does nothing on an existing install.
-const INDEX_VERSION = 5
+const INDEX_VERSION = 6 // 6: docKey keeps an unsliced block apart from chunk 0
 const TITLE_CACHE_MS = 30_000
 // Background reindexing of a streaming session is a CPU furnace; searches
 // still read it fresh, but automatic tracking may lag a few seconds.

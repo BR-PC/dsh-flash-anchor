@@ -132,7 +132,10 @@ const longSnapshot = {
 }
 const built = __test.buildSurfaceDocs(longSnapshot, { header: { id: 's-long', cwd: null } })
 check('long doc', () => {
-  const joined = built.docs.map((doc) => doc.text).join('')
+  // Since v1.7.0 a long block is split: the head chunks live in docs, the tail in
+// longDocs (its own shard). The contract is that the whole text stays indexed
+// somewhere, not that one doc holds all 70k characters.
+const joined = built.docs.concat(built.longDocs || []).map((doc) => doc.text).join('')
   assert.ok(joined.includes('NEEDLE_AT_END'), 'the tail of a long document was dropped')
 })
 
