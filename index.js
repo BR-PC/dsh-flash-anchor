@@ -26,7 +26,10 @@ const STATE_VERSION = 1
 // 5: injected context is its own doc kind. Bump this whenever buildSurfaceDocs
 //    changes how it classifies documents — otherwise the stale shards are
 //    reused and the fix silently does nothing on an existing install.
-const INDEX_VERSION = 6 // 6: docKey keeps an unsliced block apart from chunk 0
+// 6: injected context became its own doc kind. The docKey scheme itself is
+// deliberately stable — saved pages store addresses derived from it.
+// 7: @-mentioned files became their own documents, so old shards must rebuild.
+const INDEX_VERSION = 7
 const TITLE_CACHE_MS = 30_000
 // Background reindexing of a streaming session is a CPU furnace; searches
 // still read it fresh, but automatic tracking may lag a few seconds.
@@ -96,6 +99,18 @@ export function apply(ctx) {
     const id = typeof session === 'string' ? session : session && session.id
     index.noteSessionActivity(id)
   })
+  // Archiving must take effect before the next search, not on the next restart.
+  // The follow stream supplies the initial set; these two events supply every
+  // later change without waiting for that stream.
+  ctx.on('workspace/session-archived', (request) => index.noteArchived(request && request.sessionId))
+  ctx.on('workspace/session-unarchiving', (request) => index.noteUnarchived(request && request.sessionId))
+  // Load the session table and the shards while the reader is still in the chat,
+  // so the first search does not pay for it. Deferred: startup must stay quiet.
+  const warmTimer = setTimeout(() => {
+    void index.ensureReady().catch(() => {})
+  }, 1200)
+  if (typeof warmTimer === 'object' && warmTimer && typeof warmTimer.unref === 'function') warmTimer.unref()
+  ctx.effect(() => () => clearTimeout(warmTimer), 'flash-anchor: deferred bootstrap')
   // Timers and workers survive a plugin reload unless the fiber owns them.
   ctx.effect(() => () => index.dispose(), 'flash-anchor: index timers and workers')
 }
@@ -161,19 +176,42 @@ async function handleRequest(index, store, request) {
       void index.ensureReady()
       return json({ ok: true, index: index.status(), state: store.publicState() })
     }
+    if (action === 'indexStatus') {
+      void index.ensureReady()
+      return json({ ok: true, ...index.indexReport() })
+    }
+    if (action === 'export') {
+      const ids = Array.isArray(body && body.ids) ? body.ids.slice(0, 500) : []
+      const map = index.docIndex()
+      const texts = ids.map((id) => {
+        const entry = map.get(id)
+        return entry && entry.doc ? String(entry.doc.text || '') : ''
+      })
+      return json({ ok: true, texts })
+    }
     if (action === 'state') {
       return json({ ok: true, state: store.publicState(), index: index.status() })
     }
     if (action === 'index') {
+      const only = String((body && body.id) || url.searchParams.get('id') || '')
+      if (only) {
+        const rebuilt = await index.rebuildSessionOnly(only)
+        return json({ ok: true, id: only, rebuilt, index: index.status(), state: store.publicState() })
+      }
       index.rebuild()
       return json({ ok: true, index: index.status(), state: store.publicState() })
     }
     if (action === 'long') {
       const op = String((body && body.op) || url.searchParams.get('op') || 'rebuild')
-      if (op === 'clear') await index.clearLong()
+      let result = {}
+      if (op === 'clear') result = { cleared: await index.clearLong() }
       else if (op === 'auto') index.setAutoLong(body ? body.autoLong !== false : true)
-      else index.rebuildLong()
-      return json({ ok: true, index: index.status(), state: store.publicState() })
+      else result = { started: await index.rebuildLong() }
+      return json({ ok: true, op, ...result, index: index.status(), state: store.publicState() })
+    }
+    if (action === 'indexEvents') {
+      if (body && body.clear === true) index.clearIndexEvents()
+      return json({ ok: true, events: Array.isArray(index.indexEvents) ? index.indexEvents : [] })
     }
     if (action === 'clearIndex') {
       index.dropAllResolved()
@@ -327,6 +365,11 @@ async function handleRequest(index, store, request) {
       tookMs: payload.tookMs,
       surfaceMs: payload.surfaceMs,
       matchMs: payload.matchMs,
+      // Split the pre-match cost: the 5s first search has no surface or match
+      // time, so it is sitting in session listing or bootstrap.
+      ensureMs: payload.ensureMs,
+      listMs: payload.listMs,
+      otherMs: payload.otherMs,
       signature: payload.signature,
     })
     // A partial page (indexing still in flight) must not be remembered as the
@@ -474,9 +517,28 @@ class SearchIndex {
     this.bootstrapDone = false
     this.longDocs = 0
     this.longSessions = 0
+    // Sessions the Workspace marks archived. The durable registry exposes no
+    // accessor for this set — the only contract that publishes it is the
+    // workspace controller's follow stream — so it is learned, never guessed.
+    this.archived = new Set()
+    this.archiveSource = 'none'
+    this.archiveWatch = null
     // Nothing is read at plugin activation: DSH startup must pay zero cost for
     // a search plugin nobody has opened yet. The first request starts bootstrap.
     this.ready = null
+  }
+
+  /**
+   * Structured diagnostic, never a failure: the Host may be driven by a store
+   * that has no log (the contract tests use one), and a diagnostic must not be
+   * able to break indexing.
+   */
+  diag(type, payload) {
+    try {
+      if (this.store && typeof this.store.logDiag === 'function') this.store.logDiag(type, payload)
+    } catch {
+      /* diagnostics never throw */
+    }
   }
 
   /** The panel is open: start filling the index in the background. */
@@ -582,13 +644,19 @@ class SearchIndex {
     setTimeout(step, 0)
   }
 
-  nextWarmRecord() {
+  nextWarmRecord(force = false) {
     // Newest first: the session the reader is most likely to search for is
     // indexed before a year-old one.
     const now = Date.now()
     for (const record of this.records) {
-      if (this.surfaceState(record) === 'fresh') continue
-      const tried = this.attemptAt.get(record.header.id) || 0
+      const id = record.header.id
+      // An explicit rebuild re-reads everything, including sessions that are
+      // already fresh. Without `passDone` that is an endless loop; without the
+      // force flag it is a no-op that only touched stale sessions — which is why
+      // "重建索引" and "重建长文" did nothing after a completed pass.
+      if (this.passDone && this.passDone.has(id)) continue
+      if (!force && this.surfaceState(record) === 'fresh') continue
+      const tried = this.attemptAt.get(id) || 0
       if (now - tried < 5_000) continue
       return record
     }
@@ -603,29 +671,39 @@ class SearchIndex {
     }
     if (this.warming || this.job?.running) return this.status()
     if (options.long === true) this.setAutoLong(true)
+    this.passDone = new Set()
     this.warming = true
     this.warmState = { running: true, done: 0, total: this.records.length, startedAt: Date.now() }
     this.job = { running: true, done: 0, total: this.records.length }
     const step = async () => {
       try {
-        const record = this.nextWarmRecord()
+        const record = this.nextWarmRecord(true)
         if (!record) {
           this.warming = false
           this.job = null
+          this.passDone = null
           this.warmState = { ...this.warmState, running: false, done: this.records.length }
           this.schedulePersist()
+          // A long rebuild asked for while this pass was running was refused by
+          // `rebuild()`; dropping it silently is why "重建长文" looked dead.
+          if (this.longQueued) {
+            this.longQueued = false
+            this.rebuildLong()
+          }
           return
         }
         // An explicit rebuild ignores the live-session cooldown.
         this.surfaces.delete(record.header.id)
         this.attemptAt.set(record.header.id, Date.now())
         await this.ensureSurface(record)
+        if (this.passDone) this.passDone.add(record.header.id)
         if (this.job) this.job.done += 1
         this.warmState.done += 1
         setTimeout(step, this.activeSearches > 0 ? 250 : WARM_TICK_MS)
       } catch {
         this.warming = false
         this.job = null
+        this.passDone = null
       }
     }
     setTimeout(step, 0)
@@ -636,25 +714,32 @@ class SearchIndex {
     this.store.setAutoLong(value !== false)
   }
 
+  /**
+   * Re-read every session and rewrite its long shard.
+   *
+   * Long documents are derived from the session text, so this is a full re-read.
+   * It used to be a silent no-op while the ordinary index was warming — which is
+   * exactly when a reader clicks it — so it now queues itself behind that pass.
+   * The per-session long counts are NOT zeroed up front: the table must keep
+   * showing what is currently indexed while the rebuild walks it.
+   */
   async rebuildLong() {
-    // Long documents are derived from the session text, so a long rebuild is a
-    // full re-read that rewrites the long shards. The ordinary index is rebuilt
-    // with it, but it stays an independent control.
     this.longCache.clear()
-    for (const entry of this.surfaces.values()) {
-      delete entry.longDocs
-      delete entry.longTagged
-      entry.longCount = 0
-    }
-    this.longDocs = 0
-    this.longSessions = 0
     this.forceLong = true
     this.store.setAutoLong(true)
+    if (this.warming || this.job?.running) {
+      this.longQueued = true
+      this.diag('long-rebuild', { queued: true })
+      return { queued: true, running: this.warmState?.running === true }
+    }
+    this.longQueued = false
+    this.diag('long-rebuild', { queued: false, docs: this.longDocs, sessions: this.longSessions })
     this.rebuild()
-    return this.status()
+    return { queued: false, running: true }
   }
 
   async clearLong() {
+    const dropped = { docs: this.longDocs, sessions: this.longSessions }
     this.longCache.clear()
     const dirty = new Set()
     for (const [id, entry] of this.surfaces) {
@@ -671,6 +756,8 @@ class SearchIndex {
     // The manifest must stop advertising chunks whose shards are gone.
     await this.store.saveIndex(this.surfaces, dirty, new Set())
     for (const id of dirty) this.dirtySessions.delete(id)
+    this.diag('long-clear', dropped)
+    return dropped
   }
 
   /**
@@ -695,13 +782,23 @@ class SearchIndex {
       long: true,
     }))
     entry.longTagged = tagged
-    while (this.longCache.size >= 24) this.longCache.delete(this.longCache.keys().next().value)
+    while (this.longCache.size >= 24) {
+      const oldest = this.longCache.keys().next().value
+      this.longCache.delete(oldest)
+      // Dropping the Map entry alone left the full long corpus pinned on the
+      // surface through longTagged, so memory never came back.
+      const surface = this.surfaces.get(oldest)
+      if (surface) delete surface.longTagged
+    }
     this.longCache.set(sessionId, tagged)
     return tagged
   }
 
   async bootstrap() {
     try {
+      // Learn the archive set first: the session listing it filters is the very
+      // next thing this bootstrap reads.
+      this.startArchiveWatch()
       // The session table is cheap and everything else needs it; load it first
       // so the workspace list is answerable before a single shard is read.
       await this.ensureSessions()
@@ -713,8 +810,12 @@ class SearchIndex {
         // persist instead of being rewritten inside bootstrap.
         if (cached.legacy) for (const id of this.surfaces.keys()) this.dirtySessions.add(id)
       }
-      this.pruneRemoved()
+      // Never prune against a restored cache: it cannot know about sessions
+      // created since, and pruning deletes their shards.
+      if (this.recordsFromCache !== true) this.pruneRemoved()
       this.countLong()
+      // Long shards for Sessions nobody lists any more: a cache with no owner.
+      await this.pruneOrphanLongShards()
     } catch (error) {
       this.warnings += 1
       await this.store.logError('bootstrap', error)
@@ -736,7 +837,30 @@ class SearchIndex {
     if (!this.sessionsReady) {
       this.sessionsReady = (async () => {
         await this.store.load()
-        await this.reloadSessions(true)
+        const cached = Array.isArray(this.store.state.sessionCache) ? this.store.state.sessionCache : []
+        if (cached.length > 0 && this.records.length === 0) {
+          // Answer from the persisted table now; the real listing refreshes behind
+          // this search. Titles come back with it, so the panel never shows the
+          // first user line as a session name.
+          this.records = cached.map((entry) => ({
+            header: { id: entry.id, createdAt: entry.createdAt ?? null, cwd: entry.cwd ?? null },
+            live: false,
+            persisted: true,
+          }))
+          this.recordById = new Map(this.records.map((record) => [record.header.id, record]))
+          for (const entry of cached) if (entry.title) this.titles.set(entry.id, entry.title)
+          this.listAt = Date.now()
+          this.recordsFromCache = true
+          void this.reloadSessions(true)
+            .then(() => {
+              this.recordsFromCache = false
+              this.pruneRemoved()
+            })
+            .then(() => this.pruneRemoved())
+            .catch(() => {})
+        } else {
+          await this.reloadSessions(true)
+        }
       })().catch(() => {})
     }
     await this.sessionsReady
@@ -753,6 +877,204 @@ class SearchIndex {
     }
     this.longDocs = docs
     this.longSessions = sessions
+  }
+
+  /** Rebuild one session in place; the index panel's per-row button. */
+  async rebuildSessionOnly(id) {
+    const record = this.recordById.get(id)
+    if (!record) return false
+    const cached = this.surfaces.get(id)
+    if (cached) {
+      this.totalDocs -= cached.docs?.length ?? 0
+      const previousLong = Number(cached.longCount) || 0
+      if (previousLong > 0) {
+        this.longDocs -= previousLong
+        this.longSessions -= 1
+      }
+      this.surfaces.delete(id)
+    }
+    await this.ensureSurface(record)
+    this.dirtySessions.add(id)
+    this.corpusVersion += 1
+    try {
+      await this.store.saveIndex(this.surfaces, new Set([id]), new Set())
+    } catch (error) {
+      await this.store.logError('rebuild-session', error)
+      return false
+    }
+    return true
+  }
+
+  /**
+   * Learn the archive set from the Workspace controller.
+   *
+   * `follow(signal)` streams a complete baseline — which carries
+   * `archivedSessionIds` — followed by increments. This is the only contract
+   * that publishes the set: the durable registry has archive/unarchive
+   * *methods* but no accessor, so the old `workspaceRegistry.archivedSessionIds`
+   * read always came back empty and nothing was ever filtered. The set is left
+   * empty (not guessed) when the controller is absent, which is what an older
+   * Host looks like.
+   */
+  startArchiveWatch() {
+    if (this.archiveWatch) return
+    this.archiveWatch = new AbortController()
+    let service = null
+    try {
+      service = this.ctx.get('workspaceController')
+    } catch {
+      service = null
+    }
+    if (!service || typeof service.follow !== 'function') {
+      this.archiveSource = 'unavailable'
+      this.diag('archived', { source: 'unavailable', size: 0 })
+      return
+    }
+    const loop = async () => {
+      for await (const frame of service.follow(this.archiveWatch.signal)) {
+        const ids = archivedIdsOfFrame(frame)
+        if (ids) this.noteArchiveSet(ids, 'follow')
+      }
+    }
+    void loop().catch((error) => {
+      // A stream that ends is not a failure of this plugin: keep whatever set
+      // was last delivered and let the archive events keep it current.
+      this.diag('archived', {
+        source: 'follow-stopped',
+        size: this.archived.size,
+        message: String((error && error.message) || error),
+      })
+    })
+  }
+
+  /** One archive change: remember it, then make the index agree with it. */
+  noteArchiveSet(next, source) {
+    const previous = this.archived
+    const changed = previous.size !== next.size || [...next].some((id) => !previous.has(id))
+    this.archived = next
+    this.archiveSource = source
+    this.diag('archived', { size: next.size, source, changed })
+    if (changed) this.applyArchive()
+  }
+
+  noteArchived(sessionId) {
+    if (typeof sessionId !== 'string' || sessionId === '') return
+    if (this.archived.has(sessionId)) return
+    this.noteArchiveSet(new Set([...this.archived, sessionId]), 'event')
+  }
+
+  noteUnarchived(sessionId) {
+    if (typeof sessionId !== 'string' || sessionId === '' || !this.archived.has(sessionId)) return
+    const next = new Set(this.archived)
+    next.delete(sessionId)
+    this.noteArchiveSet(next, 'event')
+  }
+
+  /** Hide archived sessions at once instead of on the next listing TTL. */
+  applyArchive() {
+    // `dropArchived=false` keeps the shards (a cheap un-archive), but hiding is
+    // not optional: a hidden Session must never answer a search.
+    if (this.store.state.dropArchived !== false) {
+      if (typeof this.store.dropArchivedData === 'function') this.store.dropArchivedData(this.archived)
+      for (const id of this.archived) this.forgetSession(id)
+    }
+    if (this.records.some((record) => this.archived.has(record.header.id))) {
+      this.records = this.records.filter((record) => !this.archived.has(record.header.id))
+      this.recordById = new Map(this.records.map((record) => [record.header.id, record]))
+      this.listAt = 0
+    }
+    // The corpus is keyed by recordById, so a hidden Session leaves it as soon
+    // as the version moves.
+    this.corpusVersion += 1
+    // Re-list in the background: the archive event is not the moment to spend
+    // on headers, but the next search must not see the hidden Session.
+    void this.reloadSessions(true).catch(() => {})
+  }
+
+  /** Drop one session from memory and from the shards on disk. */
+  forgetSession(id) {
+    const cached = this.surfaces.get(id)
+    if (!cached) return
+    this.totalDocs -= cached.docs?.length ?? 0
+    const long = Number(cached.longCount) || 0
+    if (long > 0) {
+      this.longDocs -= long
+      this.longSessions = Math.max(0, this.longSessions - 1)
+    }
+    this.surfaces.delete(id)
+    this.longCache.delete(id)
+    this.dirtySessions.delete(id)
+    this.removedSessions.add(id)
+    this.queryCache.clear()
+    this.corpusCache = null
+  }
+
+  /** Ids the workspace marks as archived; empty while nothing is known yet. */
+  archivedIds() {
+    if (this.archived.size > 0) return this.archived
+    // A Host from before the workspace controller published the set on the
+    // registry. Kept as a fallback only: this Host's registry has no such field.
+    try {
+      const registry = this.ctx.get('workspaceRegistry') || this.ctx.get('workspace')
+      const ids = registry && registry.archivedSessionIds
+      if (Array.isArray(ids) && ids.length > 0) return new Set(ids)
+      if (ids && typeof ids[Symbol.iterator] === 'function') {
+        const found = new Set([...ids])
+        if (found.size > 0) return found
+      }
+    } catch {
+      /* older Host without a workspace registry */
+    }
+    return this.archived
+  }
+
+  /** Per-session state for the index panel; never rebuilds anything. */
+  /** Keep the last few indexing events for the panel. */
+  noteIndexEvent(type, detail = {}) {
+    if (!this.indexEvents) this.indexEvents = []
+    this.indexEvents.push({ at: Date.now(), type, ...detail })
+    while (this.indexEvents.length > 20) this.indexEvents.shift()
+  }
+
+  clearIndexEvents() {
+    this.indexEvents = []
+  }
+
+  indexReport() {
+    const rows = []
+    for (const record of this.records) {
+      const id = record.header.id
+      const entry = this.surfaces.get(id)
+      rows.push({
+        id,
+        title: this.titles.get(id) || entry?.fallbackTitle || null,
+        cwd: record.header.cwd ?? null,
+        docs: entry?.docs?.length ?? 0,
+        longDocs: Number(entry?.longCount) || 0,
+        state: entry ? (entry.error ? 'failed' : 'fresh') : 'missing',
+        updatedAt: entry?.builtAt ?? null,
+        error: entry?.error ? String(entry.error.message || entry.error) : null,
+      })
+    }
+    rows.sort((left, right) => (right.docs || 0) - (left.docs || 0))
+    return {
+      rows,
+      sessions: rows.length,
+      missing: rows.filter((row) => row.state === 'missing').length,
+      failed: rows.filter((row) => row.state === 'failed').length,
+      events: (this.indexEvents || []).slice(-20),
+      running: this.warming === true || this.job?.running === true,
+      done: this.warmState?.done ?? 0,
+      total: this.warmState?.total ?? rows.length,
+      docs: this.totalDocs,
+      longDocs: this.longDocs,
+      longSessions: this.longSessions,
+      autoIndex: this.store.state.autoIndex,
+      autoLong: this.store.state.autoLong !== false,
+      longQueued: this.longQueued === true,
+      archived: this.archived.size,
+      archivedSource: this.archiveSource,
+    }
   }
 
   status() {
@@ -772,6 +1094,10 @@ class SearchIndex {
       warnings: this.warnings,
       autoIndex: this.store.state.autoIndex,
       revision: this.store.state.revision,
+      // How many sessions the Workspace hides from search, and where the set
+      // came from — the diagnostic that was missing when archiving "did nothing".
+      archived: this.archived.size,
+      archivedSource: this.archiveSource,
     }
   }
 
@@ -791,6 +1117,40 @@ class SearchIndex {
       this.store.bumpRevision()
       this.schedulePersist()
     }
+  }
+
+  /**
+   * Delete long shards whose Session is neither listed nor indexed.
+   *
+   * The long index is a cache of the Session log, so a shard nobody owns can
+   * only be rebuilt — and a Session that left the listing before the removal
+   * fix shipped is exactly that (three archived Sessions still had one on disk
+   * here). Runs after the manifest is loaded, never on a search.
+   */
+  async pruneOrphanLongShards() {
+    let names = []
+    try {
+      names = await fs.readdir(this.store.longDir)
+    } catch {
+      return 0
+    }
+    const owned = new Set()
+    for (const id of this.surfaces.keys()) owned.add(this.store.shardStem(id))
+    for (const id of this.recordById.keys()) owned.add(this.store.shardStem(id))
+    let removed = 0
+    for (const name of names) {
+      if (!name.endsWith('.json.gz')) continue
+      const stem = name.slice(0, -'.json.gz'.length)
+      if (owned.has(stem)) continue
+      try {
+        await fs.rm(path.join(this.store.longDir, name), { force: true })
+        removed += 1
+      } catch {
+        /* a file that cannot be removed is a warning, not a failure */
+      }
+    }
+    if (removed > 0) this.diag('long-orphans', { removed })
+    return removed
   }
 
   schedulePersist() {
@@ -904,7 +1264,10 @@ class SearchIndex {
     await this.ensureReady()
     const started = Date.now()
     await this.reloadSessions(false)
-    if (this.titlePromise) await this.titlePromise
+    if (this.titlePromise && this.titles.size === 0) {
+      // Cosmetic data must never gate the listing; the Client re-reads it.
+      await Promise.race([this.titlePromise.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 250))])
+    }
     const sessions = this.records.map((record) => this.describeRecord(record))
     return {
       sessions,
@@ -926,7 +1289,7 @@ class SearchIndex {
   }
 
   async loadSessions() {
-    const records = await this.ctx.sessionQuery.listSessions()
+    let records = await this.ctx.sessionQuery.listSessions()
     const ids = records.map((record) => record.header.id)
     // The store may change while titles are folded; merge by id against the
     // exact listing we rank, and drop document caches for removed sessions.
@@ -940,9 +1303,30 @@ class SearchIndex {
         this.corpusVersion += 1
       }
     }
+    // Archived sessions are dropped from the index, so no hit can point at a
+    // conversation the sidebar no longer shows. The `dropArchived` preference
+    // only decides whether their shards are deleted with them — hiding is not
+    // optional, and gating both on one flag made "keep the data" keep the hits.
+    const archived = this.archivedIds()
+    if (archived.size > 0) {
+      const kept = records.filter((record) => !archived.has(record.header.id))
+      if (kept.length !== records.length) {
+        if (this.store.state.dropArchived !== false) this.store.dropArchivedData(archived)
+        records = kept
+      }
+    }
     this.records = records
     this.recordById = new Map(records.map((record) => [record.header.id, record]))
     this.listAt = Date.now()
+    // Persist a compact copy: reloading the real table reads every session header
+    // and takes seconds on a cold disk, which is exactly the first-search stall.
+    this.store.state.sessionCache = records.map((record) => ({
+      id: record.header.id,
+      createdAt: record.header.createdAt ?? null,
+      cwd: record.header.cwd ?? null,
+      title: this.titles.get(record.header.id) || null,
+    }))
+    this.store.saveStateSoon()
     // Titles are a separate Host call and can take seconds. Never hold a
     // search (or startup) on them; the UI reads them when it needs them.
     this.titlePromise = this.loadTitles(ids)
@@ -962,6 +1346,16 @@ class SearchIndex {
       }
       this.titles = titles
       this.titleVersion += 1
+      // Persist the names with the session table: after a restart the panel must
+      // not fall back to the first user line while titles are being re-read.
+      const cache = Array.isArray(this.store.state.sessionCache) ? this.store.state.sessionCache : []
+      if (cache.length > 0) {
+        this.store.state.sessionCache = cache.map((entry) => ({
+          ...entry,
+          title: this.titles.get(entry.id) || entry.title || null,
+        }))
+        this.store.saveStateSoon()
+      }
     } catch {
       /* titles are cosmetic */
     }
@@ -1096,7 +1490,15 @@ class SearchIndex {
 
     // 计算后置: the raw match list of one query is what a filter change reuses.
     // It is keyed by the corpus version, so any index change invalidates it.
-    const cacheKey = JSON.stringify([qLower, scope || '', workspace || '', long ? 1 : 0])
+    const cacheKey = JSON.stringify([
+      qLower,
+      scope || '',
+      workspace || '',
+      long ? 1 : 0,
+      // The scanned document set depends on the asked-for kinds; without this a
+      // file-only search poisoned the cache for the same query over all kinds.
+      [...(types || [])].sort().join(','),
+    ])
     const cachedMatches = this.queryCache.get(cacheKey)
     let matches
     let mode = 'cache'
@@ -1108,7 +1510,18 @@ class SearchIndex {
       // Long documents are huge; copying them into worker threads costs seconds
       // for the structured clone alone. Scan those requests inline instead.
       if (!long && requestedThreads > 1 && docs.length >= WORKER_MIN_DOCS && this.pool) {
-        matches = await this.pool.search(scanRequest, requestedThreads, docs, this.corpusVersion)
+        // The worker corpus is a *subset* (scope / workspace / kind filters).
+        // Keying it on corpusVersion alone let a scoped scan be reused for an
+        // unscoped query, which returned one session's hits for the whole store.
+        const shardKey =
+          this.corpusVersion +
+          '|' +
+          docs.length +
+          '|' +
+          (docs[0] && docs[0].id ? docs[0].id : '') +
+          '|' +
+          (docs.length > 0 && docs[docs.length - 1].id ? docs[docs.length - 1].id : '')
+        matches = await this.pool.search(scanRequest, requestedThreads, docs, shardKey)
         mode = matches ? 'worker' : 'inline-fallback'
       } else if (requestedThreads > 1) {
         mode = 'inline-small'
@@ -1220,6 +1633,65 @@ class SearchIndex {
   }
 
   /** Rebuild one session surface when it is new or a live session advanced. */
+  /**
+   * Background check for shards built before the compaction fix. A session with
+   * a checkpoint gets dropped from the cache so the next warm pass rebuilds it
+   * from the raw log; everything else is marked and left alone.
+   */
+  async verifyCompaction(record) {
+    const id = record.header.id
+    const cached = this.surfaces.get(id)
+    if (!cached || cached.compactChecked === true) return
+    try {
+      const probe = await this.ctx.sessionQuery.readSurface(id)
+      const events = Array.isArray(probe.events) ? probe.events : []
+      if (!hasCompactionMarker(events)) {
+        cached.compactChecked = true
+        this.dirtySessions.add(id)
+      } else {
+        this.totalDocs -= cached.docs?.length ?? 0
+        this.surfaces.delete(id)
+        this.corpusVersion += 1
+      }
+    } catch {
+      /* a session that cannot be probed keeps its cached surface */
+    }
+  }
+
+  /**
+   * The raw log, cached per (session, watermark): a live compacted session is
+   * rebuilt as it streams, and re-reading and replay-validating the whole log on
+   * every rebuild is seconds of work on the search path.
+   */
+  async fullEventsFor(id, watermark) {
+    const key = id + '|' + watermark
+    if (!this.fullLogCache) this.fullLogCache = new Map()
+    const hit = this.fullLogCache.get(key)
+    if (hit) return hit
+    const events = await this.readFullEvents(id)
+    if (Array.isArray(events)) {
+      this.fullLogCache.set(key, events)
+      while (this.fullLogCache.size > 6) this.fullLogCache.delete(this.fullLogCache.keys().next().value)
+    }
+    return events
+  }
+
+  /**
+   * The complete raw event log. Only used for sessions that were compacted: the
+   * surface hides the folded turns, and those turns must stay searchable.
+   */
+  async readFullEvents(id) {
+    try {
+      const query = this.ctx.sessionQuery
+      if (!query || typeof query.readSession !== 'function') return null
+      const loaded = await query.readSession(id)
+      return Array.isArray(loaded?.events) ? loaded.events : null
+    } catch {
+      // An older Host may not expose readSession; the surface is still usable.
+      return null
+    }
+  }
+
   async ensureSurface(record, options = {}) {
     const id = record.header.id
     const cached = this.surfaces.get(id)
@@ -1231,15 +1703,34 @@ class SearchIndex {
       if (cached.error && Date.now() < Number(cached.retryAt || 0)) return cached
       const unchanged =
         !cached.error && (!record.live || (liveSeq !== undefined && cached.seq === liveSeq))
-      if (unchanged) return cached
+      if (unchanged) {
+        // Shards written before the compaction fix may hold only the checkpoint,
+        // but verifying that costs one readSurface per session — never on a
+        // search. Hand it to the background pass and answer from the cache now.
+        if (cached.compactChecked !== true) void this.verifyCompaction(record)
+        return cached
+      }
       // Two searches in a row must not rebuild and resend the live surface.
       if (options.reuseLive === true && record.live && Date.now() - (cached.builtAt || 0) < 2_000) return cached
     }
     try {
       const snapshot = await this.ctx.sessionQuery.readSurface(id)
-      const built = buildSurfaceDocs(snapshot, record)
+      // Compaction hides the folded turns from the surface but keeps them in the
+      // raw log. Indexing only the surface is what made the result page and the
+      // conversation disagree after a compaction.
+      const surfaceEvents = Array.isArray(snapshot.events) ? snapshot.events : []
+      const fullEvents = hasCompactionMarker(surfaceEvents)
+        ? await this.fullEventsFor(id, Number(snapshot.capturedThroughSeq) || 0)
+        : null
+      const source =
+        fullEvents && fullEvents.length > surfaceEvents.length
+          ? { ...snapshot, events: fullEvents, surfaceSeqs: new Set(surfaceEvents.map((event) => Number(event.seq))) }
+          : snapshot
+      const built = buildSurfaceDocs(source, record)
       built.seq = liveSeq ?? (snapshot.capturedThroughSeq == null ? undefined : Number(snapshot.capturedThroughSeq))
       built.builtAt = Date.now()
+      built.compactChecked = true
+      this.noteIndexEvent(cached ? 'rebuild' : 'index', { id, docs: built.docs.length, long: Array.isArray(built.longDocs) ? built.longDocs.length : 0 })
       // Long chunks are kept apart from the ordinary documents and written to
       // their own shard, so the main index stays small and its scan stays fast.
       const keepLong = this.store.state.autoLong !== false || this.forceLong === true
@@ -1445,11 +1936,16 @@ class SearchIndex {
     const cap = Number(saved.meta?.limit) || SEARCH_LIMIT
     const items = []
     let total = 0
+    let missing = 0
     for (const id of saved.ids) {
       const entry = map.get(id)
-      // The document changed under the snapshot: the page is unusable and the
-      // caller must re-search rather than show a wrong set of rows.
-      if (!entry) return null
+      // A rebuilt index can move a handful of documents. Dropping them keeps the
+      // cached page instant; losing most of them means the page is stale beyond
+      // use, so the caller re-searches instead.
+      if (!entry) {
+        missing += 1
+        continue
+      }
       if (wanted && !wanted.has(entry.doc.kind)) continue
       if (fileOnly && (!entry.doc.ext || !extSet.has(entry.doc.ext))) continue
       if (filterWorkspace && (entry.record.header.cwd ?? '') !== workspace) continue
@@ -1475,6 +1971,10 @@ class SearchIndex {
       if (sort === 'time-asc') return a.time - b.time || b.score - a.score
       return b.score - a.score || b.time - a.time
     })
+    if (missing > 0) {
+      void this.store.logDiag('saved-drop', { id: saved.id, missing, total: saved.ids.length })
+    }
+    if (missing > saved.ids.length / 2) return null
     const meta = saved.meta || {}
     const buckets = new Map()
     for (const item of items) {
@@ -1553,6 +2053,9 @@ class SearchIndex {
       warnings: 0,
       tookMs: 0,
       restoredMs: 0,
+      // Served from a snapshot that lost a few documents; the deck shows its
+      // "may be stale" bar instead of pretending nothing changed.
+      stale: missing > 0,
     }
     if (!this.resolvedCache) this.resolvedCache = new Map()
     this.resolvedCache.delete(cacheKey)
@@ -1588,6 +2091,9 @@ class SearchIndex {
     if (this.dirtyTimer) clearTimeout(this.dirtyTimer)
     this.persistTimer = null
     this.dirtyTimer = null
+    // The follow stream outlives the plugin unless it is cancelled here.
+    if (this.archiveWatch) this.archiveWatch.abort()
+    this.archiveWatch = null
     this.warming = false
     this.openClients = 0
     this.longCache.clear()
@@ -1605,7 +2111,51 @@ class SearchIndex {
   }
 }
 
+/**
+ * The archive set a workspace follow frame carries, or null for frames that say
+ * nothing about it (upsert / remove / order / pinned).
+ */
+function archivedIdsOfFrame(frame) {
+  if (!frame || typeof frame !== 'object') return null
+  if (frame.type === 'baseline' || frame.type === 'replace') {
+    const value = frame.value && typeof frame.value === 'object' ? frame.value : {}
+    return new Set(Array.isArray(value.archivedSessionIds) ? value.archivedSessionIds : [])
+  }
+  if (frame.type === 'archived') {
+    return Array.isArray(frame.archivedSessionIds) ? new Set(frame.archivedSessionIds) : null
+  }
+  return null
+}
+
+/** True when a checkpoint replaced an earlier range of the log. */
+function hasCompactionMarker(events) {
+  for (const event of events) {
+    if (!event || typeof event !== 'object') continue
+    if (event.surfaceOp && event.surfaceOp.op === 'replace') return true
+    const kind = event.data && event.data.source && event.data.source.kind
+    if (kind === 'compact-checkpoint') return true
+  }
+  return false
+}
+
+/** Absolute-looking file paths mentioned in a message body. */
+function pathsInText(text) {
+  const out = []
+  const pattern = /(?:^|[\s(（"'])((?:[A-Za-z]:\\|~?\/)[^\s"'`<>|)）]+\.[A-Za-z0-9]{1,8})/g
+  let match = pattern.exec(String(text || ''))
+  let guard = 0
+  while (match && guard < 20) {
+    out.push(match[1])
+    guard += 1
+    match = pattern.exec(text)
+  }
+  return out
+}
+
 function buildSurfaceDocs(snapshot, record) {
+  // Set only when the caller indexed the raw log: any event missing from it was
+  // folded away by a compaction and is reported as such.
+  const surfaceSeqs = snapshot.surfaceSeqs instanceof Set ? snapshot.surfaceSeqs : null
   const docs = []
   // Everything past the head of a long block. Stored in its own shard and only
   // searched by an explicit long-document search.
@@ -1660,6 +2210,9 @@ function buildSurfaceDocs(snapshot, record) {
         seatIndex: Number.isInteger(extra.seatIndex) ? extra.seatIndex : null,
         blockKind: extra.blockKind ?? null,
         chunk,
+      }
+      if (surfaceSeqs && !surfaceSeqs.has(Number(event.seq))) {
+        doc.shadowed = true
       }
       if (isLong) {
         doc.long = true
@@ -1759,6 +2312,19 @@ function buildSurfaceDocs(snapshot, record) {
             seatIndex: nextSeatIndex('user'),
             blockKind: 'text',
           })
+          // A file the reader attached shows up as "@C:\path\name.ext" in the
+          // message text. Index it as a file too, otherwise searching it under
+          // "input files" only ever matched the sentence that names it.
+          // Only real @-mentions: prose that names a file must not add a document,
+          // or the block anchors of that turn shift.
+          for (const path of pathsInText(text).filter((item) => text.includes('@' + item))) {
+            pushFile('inputFiles', { name: basename(path), path }, event, {
+              messageId: message.id,
+              blockIndex,
+              seatIndex: nextSeatIndex('input-file'),
+              blockKind: 'file',
+            })
+          }
         } else if (role === 'assistant') {
           pushDoc('modelText', 'text', text, event, {
             messageId: message.id,
@@ -1828,7 +2394,9 @@ function buildSurfaceDocs(snapshot, record) {
           seatIndex: nextSeatIndex(role === 'user' ? 'input-file' : 'output-file'),
           blockKind: 'file',
         })
-      } else if (block.type === 'image') {
+      } else if (block.type === 'image-not-indexed') {
+        // Images are deliberately not indexed: no text to search, no node to jump
+        // to, and a bare filename rarely identifies which picture was meant.
         const attachment = block.attachment ?? {}
         const mediaType = typeof attachment.mediaType === 'string' ? attachment.mediaType : ''
         const ext = mediaType.split('/')[1] || 'png'
@@ -1982,6 +2550,11 @@ function makeResultItem({ sessionId, sessionTitle, record, doc, matchIndex, quer
     score,
     name: doc.name ?? (doc.files && doc.files[0] ? doc.files[0].name : null),
     long: doc.long === true,
+    // An image has no text node to land on, so the client must not claim a jump.
+    locate: doc.blockKind === 'image' ? false : true,
+    // The turn was folded away by a compaction: still searchable, but the chat
+    // no longer renders it, so the client can say so instead of failing to jump.
+    shadowed: doc.shadowed === true,
     files: doc.files ?? null,
   }
 }
@@ -2081,6 +2654,22 @@ class StateStore {
           const saved = legacySaved[item.id] ?? legacySaved[id]
           if (saved) savedSearches[id] = saved
           if (history.length >= MAX_HISTORY) break
+        }
+        // Pages behind older filter sets of a kept keyword are not reachable
+        // from a history row (the row carries the newest filters), but they are
+        // exactly what 计算后置 re-filters instead of rescanning. Load them too,
+        // and let the same MAX_SAVED cap that bounds the writes bound the file.
+        for (const [key, saved] of Object.entries(legacySaved)) {
+          if (savedSearches[key] || !saved || typeof saved !== 'object') continue
+          savedSearches[key] = saved
+        }
+        const loaded = Object.entries(savedSearches)
+        if (loaded.length > MAX_SAVED) {
+          loaded.sort(
+            (left, right) =>
+              (Number(right[1].lastUsed || right[1].at) || 0) - (Number(left[1].lastUsed || left[1].at) || 0),
+          )
+          for (const [key] of loaded.slice(MAX_SAVED)) delete savedSearches[key]
         }
         this.state = {
           ...defaultState(),
@@ -2218,6 +2807,28 @@ class StateStore {
     this.saveStateSoon()
   }
 
+  /** Drop history rows and cached pages that belong to archived sessions. */
+  dropArchivedData(ids) {
+    if (!ids || ids.size === 0) return 0
+    let dropped = 0
+    this.state.history = (this.state.history || []).filter((item) => {
+      if (!ids.has(String(item.scope || 'all'))) return true
+      dropped += 1
+      return false
+    })
+    for (const [key, saved] of Object.entries(this.state.savedSearches || {})) {
+      const scope = String(saved?.request?.scope || 'all')
+      const sessions = Array.isArray(saved?.sessions) ? saved.sessions : []
+      if (!ids.has(scope) && !sessions.some((id) => ids.has(id))) continue
+      delete this.state.savedSearches[key]
+      if (!this.droppedIds) this.droppedIds = []
+      this.droppedIds.push(key)
+      dropped += 1
+    }
+    if (dropped > 0) this.saveStateSoon()
+    return dropped
+  }
+
   recordSearch(request, payload, seqs) {
     const query = String(request.q || '').trim()
     const types = Array.isArray(request.types) ? request.types : []
@@ -2227,6 +2838,16 @@ class StateStore {
       return null
     }
     const id = queryId(request)
+    const keyword = query.toLowerCase()
+    if (keyword) {
+      for (const existing of [...(this.state.history || [])]) {
+        if (existing.id === id) continue
+        if (String(existing.query || '').trim().toLowerCase() !== keyword) continue
+        // Only the history row is merged; the snapshot stays for 计算后置 (a wider
+        // page answering a narrower filter) and is left to the saved-view LRU.
+        this.state.history = this.state.history.filter((item) => item.id !== existing.id)
+      }
+    }
     const entry = {
       id,
       snapshotId: id,
@@ -2247,6 +2868,13 @@ class StateStore {
     // real search instead of replaying a half page.
     const complete = (Number(payload.pending) || 0) === 0 && payload.long !== true
     if (!complete) {
+      // An older complete snapshot for the same query must not survive this
+      // search: reopening the row would replay the stale page instead.
+      if (this.state.savedSearches[id]) {
+        delete this.state.savedSearches[id]
+        if (!this.droppedIds) this.droppedIds = []
+        this.droppedIds.push(id)
+      }
       this.saveStateSoon()
       return entry
     }
@@ -2291,15 +2919,12 @@ class StateStore {
       },
     }
     this.pruneSaved()
-    const keep = new Set(this.state.history.map((item) => item.id))
-    for (const key of Object.keys(this.state.savedSearches)) {
-      if (!keep.has(key)) delete this.state.savedSearches[key]
-    }
-    // Pages that fell out of the history must also release their resolved
-    // payloads; otherwise the in-memory materialized view outlives the row.
-    this.droppedIds = [...before, ...Object.keys(this.state.savedSearches)].filter(
-      (key) => !(key in this.state.savedSearches),
-    )
+    // Older filter sets of the same keyword are NOT dropped here. The history row
+    // carries only the newest filters, but the wider page behind an older set is
+    // exactly what 计算后置 re-filters instead of rescanning — pruning it made a
+    // filter tweak pay for the whole corpus again. `pruneSaved` (an LRU of
+    // MAX_SAVED) is what bounds them.
+    this.droppedIds = [...before].filter((key) => !(key in this.state.savedSearches))
     this.saveStateSoon()
     return entry
   }
@@ -2424,19 +3049,24 @@ class StateStore {
     await this.writeChain
   }
 
+  /** The file name stem one session owns (shards are named, not nested). */
+  shardStem(sessionId) {
+    return encodeURIComponent(String(sessionId)).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180)
+  }
+
   sessionIndexFile(sessionId) {
-    const safe = encodeURIComponent(String(sessionId)).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180)
-    return path.join(this.indexDir, safe + '.json.gz')
+    return path.join(this.indexDir, this.shardStem(sessionId) + '.json.gz')
   }
 
   sessionLongFile(sessionId) {
-    const safe = encodeURIComponent(String(sessionId)).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180)
-    return path.join(this.longDir, safe + '.json.gz')
+    return path.join(this.longDir, this.shardStem(sessionId) + '.json.gz')
   }
 
   async loadLongShard(sessionId) {
     try {
-      const parsed = JSON.parse(zlib.gunzipSync(await fs.readFile(this.sessionLongFile(sessionId))))
+      // Async like loadIndex: a multi-megabyte long shard must not block the
+      // Host event loop while a search is in flight.
+      const parsed = JSON.parse(await gunzip(await fs.readFile(this.sessionLongFile(sessionId))))
       return Array.isArray(parsed?.docs) ? parsed.docs : null
     } catch {
       return null
@@ -2530,6 +3160,10 @@ class StateStore {
         }
         for (const id of removed) {
           await fs.rm(this.sessionIndexFile(id), { force: true }).catch(() => {})
+          // The long shard is a separate file; leaving it behind kept every
+          // archived Session's long text on disk forever (three of six archived
+          // Sessions still had one after archiving had "cleaned" them).
+          await fs.rm(this.sessionLongFile(id), { force: true }).catch(() => {})
         }
         const manifestBytes = await gzip(Buffer.from(JSON.stringify(manifest)))
         await writeAtomic(this.indexFile, manifestBytes)

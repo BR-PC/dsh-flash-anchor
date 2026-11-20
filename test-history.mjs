@@ -64,13 +64,23 @@ assert.ok(stored, 'a complete search must be stored as a snapshot')
 assert.equal(stored.meta.total, 3)
 assert.ok(store.matchSaved(request), 'a complete snapshot must answer the same request')
 
-// 3. A different filter set is a separate row.
+// 3. The same keyword with a different filter set stays ONE row: the row is
+//    keyed by what the user typed, and the newest filter set follows it. The
+//    wider page keeps its snapshot so the newer filters can narrow it.
 const other = parseSearchRequest(new URLSearchParams('q=alpha&types=reasoning'))
-store.recordSearch(other, payloadOf({ types: ['reasoning'], signature: other.sig }), {})
-assert.equal(store.state.history.length, 2, 'a different filter set must be its own row')
-assert.equal(store.state.history[0].id, store.state.history.find((item) => item.id !== complete.id).id)
+const merged = store.recordSearch(other, payloadOf({ types: ['reasoning'], signature: other.sig }), {})
+assert.equal(merged.query, 'alpha')
+assert.equal(store.state.history[0].id, merged.id)
+assert.equal(store.state.history.length, 1, 'the same keyword grew a sibling row')
+assert.deepEqual(store.state.history[0].types, ['reasoning'], 'the row kept the older filter set')
+assert.ok(store.savedSearch(complete.id), 'the earlier filter set lost its snapshot')
 
-// 4. Clearing takes every row and every snapshot, and reports the ids so the
+// 4. A different keyword is a row of its own.
+const otherQuery = parseSearchRequest(new URLSearchParams('q=beta&types=userText'))
+store.recordSearch(otherQuery, payloadOf({ query: 'beta', signature: otherQuery.sig }), {})
+assert.equal(store.state.history.length, 2, 'a different keyword must be its own row')
+
+// 5. Clearing takes every row and every snapshot, and reports the ids so the
 //    in-memory materialized pages can be released too.
 const before = Object.keys(store.state.savedSearches).length
 assert.ok(before >= 2, 'expected snapshots before clearing, got ' + before)
@@ -80,19 +90,19 @@ assert.equal(Object.keys(store.state.savedSearches).length, 0, 'clearHistory lef
 assert.ok(dropped.length >= 2, 'clearHistory must report every dropped id, got ' + dropped.length)
 assert.equal(store.matchSaved(request), null, 'a cleared snapshot still answered')
 
-// 5. The dropped ids release the in-memory pages as well.
+// 6. The dropped ids release the in-memory pages as well.
 index.resolvedCache = new Map([[complete.id + '|*||relevance', { version: 1, payload: { items: [] } }]])
 index.dropResolved(complete.id)
 assert.equal(index.resolvedCache.size, 0, 'dropResolved did not release the page')
 
-// 6. The clear survives a reload.
+// 7. The clear survives a reload.
 await store.saveStateNow()
 const reopened = new StateStore()
 await reopened.load()
 assert.equal(reopened.state.history.length, 0, 'cleared history came back after a reload')
 assert.equal(Object.keys(reopened.state.savedSearches).length, 0, 'cleared snapshots came back after a reload')
 
-// 7. The row remembers the filters it was made with, so the panel can render
+// 8. The row remembers the filters it was made with, so the panel can render
 //    them next to the keyword.
 const shaped = parseSearchRequest(new URLSearchParams('q=beta&types=modelText,userText&workspace=D:/w&sort=time&long=1'))
 const entry = store.recordSearch(shaped, payloadOf({ query: 'beta', long: true, signature: shaped.sig }), {})

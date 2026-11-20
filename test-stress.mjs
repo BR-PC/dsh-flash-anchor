@@ -154,30 +154,38 @@ for (const scope of [null, 'sess-0', 'sess-16', 'missing-session']) {
 console.log('filter permutations', combos, 'slowest', slowest + 'ms')
 assert.ok(slowest < 1200, 'slowest search ' + slowest + 'ms')
 
-// v1.8.1 contract: one row per query + filter set. A filter change is its own
-// row; deleting one row must never take the sibling rows with it.
+// v1.8.5 contract: the history row is keyed by the keyword the user typed, and
+// it carries the filter set of the most recent search with that keyword. Every
+// filter set still keeps its own snapshot, which is what makes a filter change
+// (计算后置) cost a re-filter instead of a corpus scan, and what keeps a deleted
+// row from taking its siblings' pages with it.
 const requests = [
   parseSearchRequest(new URLSearchParams('q=deploy&types=modelText&sort=relevance')),
   parseSearchRequest(new URLSearchParams('q=deploy&types=reasoning&sort=time')),
   parseSearchRequest(new URLSearchParams('q=deploy&types=tools&sort=time-asc&ext=md')),
   parseSearchRequest(new URLSearchParams('q=other query&types=modelText')),
 ]
-for (const request of requests) store.recordSearch(request, { total: 1, items: [], sessions: [] })
-assert.equal(store.state.history.filter((item) => item.query === 'deploy').length, 3)
-assert.equal(store.state.history.length, 4)
-const deployEntry = store.state.history.find((item) => item.query === 'deploy' && item.sort === 'time-asc')
+const recorded = requests.map((request) => store.recordSearch(request, { total: 1, items: [], sessions: [] }))
+assert.equal(store.state.history.filter((item) => item.query === 'deploy').length, 1, 'one row per keyword')
+assert.equal(store.state.history.length, 2)
+const deployEntry = store.state.history.find((item) => item.query === 'deploy')
+assert.equal(deployEntry.id, recorded[2].id, 'the row must belong to the newest filter set')
+assert.equal(deployEntry.sort, 'time-asc', 'the row must carry the newest filters')
 assert.equal(store.savedSearch(deployEntry.id).request.sort, 'time-asc')
+assert.ok(store.savedSearch(recorded[0].id), 'the first filter set lost its snapshot')
 await store.saveStateNow()
 
 const reopened = new StateStore()
 await reopened.load()
-assert.equal(reopened.state.history.filter((item) => item.query === 'deploy').length, 3)
-assert.equal(reopened.state.history.length, 4)
+assert.equal(reopened.state.history.filter((item) => item.query === 'deploy').length, 1)
+assert.equal(reopened.state.history.length, 2)
+assert.ok(reopened.savedSearch(recorded[0].id), 'the reload dropped a filter set snapshot')
 
 reopened.deleteSaved(deployEntry.id)
 assert.equal(reopened.state.history.some((item) => item.id === deployEntry.id), false)
-assert.equal(reopened.state.history.filter((item) => item.query === 'deploy').length, 2)
+assert.equal(reopened.state.history.length, 1)
 assert.equal(reopened.savedSearch(deployEntry.id), null)
+assert.ok(reopened.savedSearch(recorded[0].id), 'deleteSaved took another filter set with it')
 
 // prefs round-trip is what restores the previous result page
 reopened.setPrefs({ resultsOpen: true, savedId: deployEntry.id, types: ['tools'], sort: 'time', timeOrder: 'asc' })

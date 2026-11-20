@@ -57,6 +57,7 @@ window.__ModuleLoader__.load({
       "scope.sessionHint": "只在指定会话内搜索",
       "scope.filter": "筛选会话…",
       "scope.empty": "没有匹配的会话",
+      "scope.emptyWorkspace": "工作区「{ws}」下没有会话",
       "scope.loading": "加载会话列表…",
       "scope.noSession": "尚未选择会话",
       "scope.selected": "当前会话",
@@ -152,6 +153,19 @@ window.__ModuleLoader__.load({
       "jump.failed": "已打开会话，但未能定位到该消息",
       "jump.notOpened": "会话没有打开（可能还在加载），请再点一次",
       "jump.waitingOpen": "正在等待会话打开…请在左侧点开它，我会自动定位",
+      "export.title": "导出 Markdown",
+      "export.done": "已导出 Markdown",
+      "export.doneFiles": "已导出；附件以清单列出，不含文件本体",
+      "export.hint": "导出为 Markdown；附件只列文件名与原始路径，不导出文件本体",
+      "export.select": "选中这条结果",
+      "export.selectAll": "全选",
+      "export.selectNone": "取消全选",
+      "export.selected": "导出选中 {count} 条",
+      "export.selectedChip": "已选 {count} 条",
+      "jump.imageOnly": "图片没有可定位的文本，已打开所在会话",
+      "jump.compacted": "这段内容已被上下文压缩折叠，正文已不在当前会话视图中（仍可搜索）",
+      "result.shadowed": "已压缩",
+      "result.shadowedHint": "该段被上下文压缩折叠：DSH 会话视图里看不到正文，但它仍在索引里，可以搜到",
       "jump.turn": "第 {turn} 轮",
       "result.turn": "第 {turn} 轮",
       "boot.loading": "正在加载配置…",
@@ -195,6 +209,8 @@ window.__ModuleLoader__.load({
       "long.title": "长文索引",
       "long.ready": "{docs} 段 · {sessions} 个会话",
       "long.empty": "暂无长文",
+      "long.hint": "长文＝单个代码块/正文超过 4000 字、被普通索引按 4000 字切开后的剩余部分；勾选「包含长文内容（较慢）」才会扫描它们。",
+      "long.rebuildHint": "重新读取每个会话并重写长文分片；后台进行，正在进行时点击会排队。",
       "long.auto": "自动索引长文",
       "long.rebuild": "重建长文",
       "long.clear": "清空长文",
@@ -203,6 +219,11 @@ window.__ModuleLoader__.load({
       "long.ctaHint": "长文内容不在普通索引里，长文搜索要扫更大的文本，可能需要几秒。",
       "long.emptyHint": "长文段落被普通索引截断了，长文搜索能找到它们。",
       "long.running": "正在搜索长文索引…",
+      "long.started": "长文索引已开始：当前 {docs} 条 / {sessions} 个会话，完成后这里会更新",
+      "long.queued": "长文索引已排队，当前重建结束后自动开始",
+      "long.cleared": "已清空长文索引（{docs} 条 / {sessions} 个会话）",
+      "long.autoOn": "已开启自动长文索引",
+      "long.autoOff": "已关闭自动长文索引",
       "deck.restored": "恢复 {ms}ms",
       "deck.took": "耗时 {ms}ms",
       "deck.narrowed": "筛选命中缓存",
@@ -219,6 +240,31 @@ window.__ModuleLoader__.load({
       "log.hint": "记录搜索、定位与错误的详细信息，供排查问题；关闭后不再写入。",
       "log.path": "日志地址",
       "log.size": "当前 {size}",
+      "index.title": "索引状态",
+      "index.summary": "{sessions} 个会话 · {docs} 条文档 · 待索引 {missing}",
+      "index.rebuild": "重建",
+      "index.paused": "自动索引已暂停",
+      "index.pause": "暂停自动索引",
+      "index.pauseHint": "只暂停后台自动索引，手动搜索仍会索引当前会话",
+      "index.busy": "正在索引 {done}/{total} 个会话",
+      "index.idle": "索引已就绪",
+      "index.colDocs": "文档数",
+      "index.colTime": "最后更新",
+      "index.colState": "状态",
+      "index.untitled": "（未命名会话）",
+      "index.events": "最近索引事件",
+      "index.eventsClear": "清空",
+      "index.eventsEmpty": "还没有索引事件",
+      "index.eventsHint": "只保留最近 20 条",
+      "index.colLong": "长文",
+      "index.longSummary": "长文 {docs} 条 · {sessions} 个会话",
+      "index.longEmpty": "长文索引为空：在搜索设置里勾选「包含长文内容（较慢）」后搜索，或点下方的「重建长文」；长文段落＝被普通索引按 4000 字切开的长内容。",
+      "index.pendingDot": "有会话等待索引",
+      "index.eventRebuild": "重建",
+      "index.eventIndex": "建立索引",
+      "index.resume": "继续自动索引",
+      "index.view": "查看索引状态 →",
+      "index.needsRestart": "索引面板需要重启 DSH 才能启用（宿主新增了 indexStatus 接口）",
       "log.copy": "复制路径",
       "log.copied": "日志路径已复制",
       "log.clear": "清空日志",
@@ -246,6 +292,7 @@ window.__ModuleLoader__.load({
       "scope.sessionHint": "Search inside the selected session only",
       "scope.filter": "Filter sessions…",
       "scope.empty": "No matching sessions",
+      "scope.emptyWorkspace": "No sessions in workspace \"{ws}\"",
       "scope.loading": "Loading sessions…",
       "scope.noSession": "No session selected",
       "scope.selected": "Selected",
@@ -341,6 +388,19 @@ window.__ModuleLoader__.load({
       "jump.failed": "Session opened, but the message could not be located",
       "jump.notOpened": "The session did not open (still loading?) — click again",
       "jump.waitingOpen": "Waiting for the session — open it in the sidebar and I will locate it",
+      "export.title": "Export Markdown",
+      "export.done": "Markdown exported",
+      "export.doneFiles": "Exported; attachments are listed, not included",
+      "export.hint": "Export as Markdown; attachments are listed by name and path only, no file bodies",
+      "export.select": "Select this result",
+      "export.selectAll": "Select all",
+      "export.selectNone": "Clear selection",
+      "export.selected": "Export {count} selected",
+      "export.selectedChip": "{count} selected",
+      "jump.imageOnly": "An image has no text to jump to; its session is opened",
+      "jump.compacted": "This passage was folded away by a context compaction, so the chat no longer renders it (it stays searchable)",
+      "result.shadowed": "Compacted",
+      "result.shadowedHint": "Folded away by a context compaction: not rendered in the chat, still indexed and searchable",
       "jump.turn": "Turn {turn}",
       "result.turn": "Turn {turn}",
       "boot.loading": "Loading preferences…",
@@ -384,6 +444,8 @@ window.__ModuleLoader__.load({
       "long.title": "Long-text index",
       "long.ready": "{docs} chunks · {sessions} sessions",
       "long.empty": "No long text yet",
+      "long.hint": "A long document is the remainder of a code block or message past 4000 characters, which the ordinary index slices off. Tick \"Include long text (slower)\" to scan them.",
+      "long.rebuildHint": "Re-reads every session and rewrites the long shards in the background; pressing it during a running pass queues it.",
       "long.auto": "Index long text automatically",
       "long.rebuild": "Rebuild long text",
       "long.clear": "Clear long text",
@@ -392,6 +454,11 @@ window.__ModuleLoader__.load({
       "long.ctaHint": "Long text is not in the ordinary index. This search reads more text and can take a few seconds.",
       "long.emptyHint": "Long passages are truncated out of the ordinary index; the long search can still find them.",
       "long.running": "Searching the long-text index…",
+      "long.started": "Long-text rebuild started: {docs} docs / {sessions} sessions; this view updates when it finishes",
+      "long.queued": "Long-text rebuild queued; it starts when the running pass ends",
+      "long.cleared": "Long-text index cleared ({docs} docs / {sessions} sessions)",
+      "long.autoOn": "Automatic long-text indexing on",
+      "long.autoOff": "Automatic long-text indexing off",
       "deck.restored": "Restored in {ms}ms",
       "deck.took": "Took {ms}ms",
       "deck.narrowed": "Filters served from cache",
@@ -408,6 +475,31 @@ window.__ModuleLoader__.load({
       "log.hint": "Records search, jump and error details for troubleshooting; nothing is written when off.",
       "log.path": "Log file",
       "log.size": "{size} on disk",
+      "index.title": "Index status",
+      "index.summary": "{sessions} sessions · {docs} docs · {missing} pending",
+      "index.rebuild": "Rebuild",
+      "index.paused": "Auto index paused",
+      "index.pause": "Pause auto index",
+      "index.pauseHint": "Only background indexing pauses; a manual search still indexes its session",
+      "index.busy": "Indexing {done}/{total} sessions",
+      "index.idle": "Index is ready",
+      "index.colDocs": "Docs",
+      "index.colTime": "Updated",
+      "index.colState": "State",
+      "index.untitled": "(untitled session)",
+      "index.events": "Recent index events",
+      "index.eventsClear": "Clear",
+      "index.eventsEmpty": "No index events yet",
+      "index.eventsHint": "Only the latest 20 are kept",
+      "index.colLong": "Long",
+      "index.longSummary": "{docs} long docs · {sessions} sessions",
+      "index.longEmpty": "The long index is empty: tick \"Include long text (slower)\" before searching, or press \"Rebuild long text\" below. A long document is a passage the ordinary index sliced at 4000 characters.",
+      "index.pendingDot": "Sessions waiting to be indexed",
+      "index.eventRebuild": "rebuild",
+      "index.eventIndex": "index",
+      "index.resume": "Resume auto index",
+      "index.view": "View index status →",
+      "index.needsRestart": "Restart DSH to enable the index panel (the Host gained an indexStatus action)",
       "log.copy": "Copy path",
       "log.copied": "Log path copied",
       "log.clear": "Clear log",
@@ -424,7 +516,10 @@ window.__ModuleLoader__.load({
    re-render an offscreen buffer on every frame and is the single biggest
    cause of dropped frames while this dialog is open. */
 .ds-backdrop{position:absolute;inset:0;background:radial-gradient(1100px 720px at 18% 8%,rgba(14,165,233,.16),transparent 62%),radial-gradient(900px 640px at 86% 92%,rgba(37,99,235,.12),transparent 60%),rgba(6,9,16,.72);animation:ds-fade .18s ease}
-.ds-modal{position:relative;display:flex;flex-direction:column;width:min(1200px,94vw);height:min(860px,92vh);border-radius:26px;overflow:hidden;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l2,#8ea0c0) 48%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#121620) var(--ds-alpha,96%),transparent),color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) var(--ds-alpha-soft,92%),transparent));box-shadow:0 44px 120px rgba(0,0,0,.55),inset 0 1px 0 color-mix(in srgb,#fff 18%,transparent);animation:ds-pop .22s cubic-bezier(.2,.85,.25,1)}
+.ds-modal{position:relative;display:flex;flex-direction:column;width:min(1200px,94vw);height:min(860px,92vh);border-radius:26px;overflow:hidden;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l2,#8ea0c0) 48%,transparent);/* Opaque on purpose: even 2% transparency makes Chromium blend this
+   1200x860 surface with the backdrop on every frame while the list scrolls,
+   and a 120px-blur shadow adds a second large layer. Cost without benefit. */
+  background:var(--dsw-alias-bg-overlay,#121620);box-shadow:none;contain:layout paint style;animation:ds-pop .22s cubic-bezier(.2,.85,.25,1)}
 /* Blur is opt-in: the slider starts at 0 and a non-zero value is the only way
    the compositor pays for it. */
 .ds-root.is-blurred .ds-modal{backdrop-filter:blur(var(--ds-blur,16px)) saturate(1.2)}
@@ -482,7 +577,9 @@ window.__ModuleLoader__.load({
 .ds-selected-card span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
 .ds-selected-card svg{flex:none;color:var(--dsw-alias-brand-primary,#0ea5e9)}
 .ds-side-foot{margin-top:auto;padding-top:12px;border-top:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 28%,transparent)}
-.ds-index-status{margin-top:5px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary,#98a6bf)}
+.ds-index-status{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0 0 8px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary,#98a6bf)}
+.ds-index-long{font-size:10.5px;color:#7f8da8}
+.ds-index-long.is-queued{color:#fbbf24}
 .ds-index-actions{display:flex;gap:6px;margin-top:7px}
 .ds-mini-btn{height:27px;padding:0 9px;border-radius:7px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 26%,transparent);color:var(--dsw-alias-label-secondary,#98a6bf);font:inherit;font-size:11px;cursor:pointer}
 .ds-mini-btn:hover{color:var(--dsw-alias-label-primary,#e8ecf5);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 42%,transparent)}
@@ -513,7 +610,7 @@ window.__ModuleLoader__.load({
 .ds-history-remove:hover{background:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 16%,transparent);color:var(--dsw-alias-state-error-primary,#e5534b)}
 .ds-history-chip:hover{color:var(--dsw-alias-label-primary,#e8ecf5);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 45%,transparent)}
 .ds-empty-history{font-size:10.5px;color:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 80%,transparent)}
-.ds-deck{position:absolute;inset:11px;z-index:6;display:flex;flex-direction:column;border-radius:19px;overflow:hidden;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l2,#8ea0c0) 45%,transparent);background:linear-gradient(155deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#121620) 97%,transparent),color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 93%,transparent));box-shadow:0 26px 70px rgba(0,0,0,.42),inset 0 1px 0 color-mix(in srgb,#fff 13%,transparent);animation:ds-deck .28s cubic-bezier(.2,.85,.25,1)}
+.ds-deck{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;border-radius:0;overflow:hidden;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l2,#8ea0c0) 45%,transparent);background:var(--dsw-alias-bg-overlay,#121620);box-shadow:none;contain:layout paint style;animation:ds-deck .28s cubic-bezier(.2,.85,.25,1)}
 .ds-deck-head{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent)}
 .ds-back{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 34%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 24%,transparent);color:var(--dsw-alias-label-secondary,#98a6bf);font:inherit;font-size:11px;cursor:pointer;white-space:nowrap}
 .ds-back:hover{color:var(--dsw-alias-label-primary,#e8ecf5);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 45%,transparent)}
@@ -524,23 +621,33 @@ window.__ModuleLoader__.load({
 .ds-deck-filters{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 16px;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 24%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 14%,transparent)}
 .ds-deck-filter-label{font-size:9.5px;letter-spacing:.7px;text-transform:uppercase;color:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 82%,transparent);margin-right:2px}
 .ds-deck-chip{display:inline-flex;align-items:center;height:23px;padding:0 8px;border-radius:999px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#182030) 42%,transparent);font-size:10px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap}
-.ds-deck-scroll{flex:1;min-height:0;overflow:auto;padding:10px 12px 18px;scrollbar-width:thin}
-.ds-group{padding:4px 0 10px}
+.ds-deck-scroll{flex:1;min-height:0;overflow:auto;padding:10px 12px 18px;scrollbar-width:thin;will-change:scroll-position;transform:translateZ(0);contain:paint}
+.ds-group{padding:0}
 .ds-group .ds-result:first-of-type{margin-top:4px}
-.ds-group-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:9px;padding:9px 6px;background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#121620) 97%,transparent) 82%,color-mix(in srgb,var(--dsw-alias-bg-overlay,#121620) 86%,transparent))}
+.ds-group-head{position:static;display:flex;align-items:center;gap:9px;padding:9px 6px;background:var(--dsw-alias-bg-overlay,#121620)}
 .ds-avatar{width:29px;height:29px;flex:none;border-radius:10px;display:grid;place-items:center;font-size:11.5px;font-weight:700;color:#fff;background:linear-gradient(135deg,#0ea5e9,#2563eb);box-shadow:0 4px 12px rgba(14,165,233,.28)}
-.ds-group-title{font-size:12px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:620px}
+.ds-group-title{font-size:12px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ds-group-meta{font-size:9.5px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
-.ds-result{display:flex;flex-direction:column;gap:5px;width:100%;margin:0 0 6px;padding:9px 11px;border-radius:11px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 20%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 24%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);text-align:left;font:inherit;cursor:pointer;content-visibility:auto;contain-intrinsic-size:auto 92px;transition:background .15s,border-color .15s,transform .15s}
-.ds-result:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 9%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 34%,transparent);transform:translateY(-1px)}
+.ds-result{display:flex;flex-direction:column;gap:5px;width:100%;margin:0 0 6px;padding:9px 11px;border-radius:11px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 20%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 24%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);text-align:left;font:inherit;cursor:pointer;transition:none;background:transparent;border:0;border-radius:0;padding:8px 10px;margin:0 0 2px;contain:layout style paint}
+.ds-result-wrap{display:flex;align-items:flex-start;gap:8px}
+.ds-result-wrap .ds-result{flex:1 1 auto;min-width:0}
+.ds-result-wrap.is-selected .ds-result{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 8%,transparent)}
+.ds-check{flex:none;width:18px;height:18px;margin-top:9px;padding:0;border-radius:5px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 55%,transparent);background:transparent;color:#fff;font-size:11px;line-height:1;cursor:pointer}
+.ds-check:hover{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 70%,transparent)}
+.ds-check.is-on{background:var(--dsw-alias-brand-primary,#0ea5e9);border-color:var(--dsw-alias-brand-primary,#0ea5e9)}
+.ds-deck-select{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+.ds-deck-link{padding:0;border:0;background:none;color:var(--dsw-alias-brand-primary,#0ea5e9);font:inherit;font-size:10.5px;cursor:pointer}
+.ds-deck-link:hover{text-decoration:underline}
+.ds-deck-chip.is-picked{color:#0ea5e9;border-color:rgba(14,165,233,.5)}
+.ds-result:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 9%,transparent)}
 .ds-result:focus-visible{outline:2px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 70%,transparent);outline-offset:1px}
 .ds-result-top{display:flex;align-items:center;gap:7px;min-width:0}
 .ds-kind{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:6px;font-size:9.5px;font-weight:650;letter-spacing:.2px;color:var(--dsw-alias-label-primary,#e8ecf5);background:color-mix(in srgb,var(--k,#0ea5e9) 17%,transparent);border:1px solid color-mix(in srgb,var(--k,#0ea5e9) 30%,transparent);white-space:nowrap}
 .ds-kind::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--k,#0ea5e9);box-shadow:0 0 8px var(--k,#0ea5e9)}
 .ds-toolname{font-size:10px;color:var(--dsw-alias-label-secondary,#98a6bf);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:250px}
 .ds-time{margin-left:auto;flex:none;font-size:9.5px;color:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 88%,transparent);white-space:nowrap}
-.ds-snippet{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-primary,#e8ecf5);word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.ds-snippet mark{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 30%,transparent);color:inherit;border-radius:3px;padding:0 1px;box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 16%,transparent)}
+.ds-snippet{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-primary,#e8ecf5);word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ds-snippet mark{background:transparent;color:var(--dsw-alias-brand-primary,#0ea5e9);font-weight:700;box-shadow:none}
 .ds-files{display:flex;flex-wrap:wrap;gap:5px;margin-top:1px}
 .ds-file-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:2px 7px;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 26%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 30%,transparent);font-size:9.5px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ds-deck-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;min-height:300px;padding:44px 22px;text-align:center}
@@ -589,6 +696,9 @@ window.__ModuleLoader__.load({
 .ds-entry{box-sizing:border-box;width:calc(100% + 4px);height:42px;display:flex;align-items:center;gap:8px;margin:0 -2px;padding:0 10px 0 8px;border:0;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary,#e6e6e6);font:inherit;font-size:14px;line-height:22px;cursor:pointer;overflow:hidden;text-decoration:none;transition:background .16s}
 .ds-entry:hover{background:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 14%,transparent)}
 .ds-entry-rail{width:36px;height:36px;flex:none;justify-content:center;gap:0;margin:0;padding:0;border-radius:50%}
+.ds-entry-dot{position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:#fbbf24}
+.ds-entry{position:relative}
+.ds-entry-dot.is-busy{background:#38bdf8;animation:ds-blink 1.2s ease-in-out infinite}
 .ds-entry-icon{flex:none;color:var(--dsw-alias-brand-primary,#0ea5e9)}
 .ds-entry-label{flex:auto;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* The sidebar footer action seat is a single flex row; with more than one
@@ -610,7 +720,30 @@ window.__ModuleLoader__.load({
 .ds-badge{display:inline-flex;align-items:center;height:19px;min-width:0;max-width:100%;padding:0 7px;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#182030) 55%,transparent);font-size:10.5px;color:var(--dsw-alias-label-secondary,#98a6bf);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ds-badge.is-long{border-color:color-mix(in srgb,#a855f7 55%,transparent);color:#c084fc}
 .ds-badge.is-ws{border-color:color-mix(in srgb,#22d3ee 45%,transparent);color:#67e8f9}
+.ds-badge.is-shadowed{border-color:color-mix(in srgb,#f59e0b 50%,transparent);color:#fbbf24}
 .ds-history-item{align-items:flex-start}
+.ds-index-bar{height:4px;margin:0 0 12px;border-radius:2px;background:rgba(127,141,168,.18);overflow:hidden}
+.ds-index-bar-fill{height:100%;background:linear-gradient(90deg,#0ea5e9,#06b6d4);transition:width .3s ease}
+.ds-index-bar.is-done{background:rgba(52,211,153,.2)}
+.ds-index-bar.is-done .ds-index-bar-fill{background:linear-gradient(90deg,#10b981,#34d399)}
+.ds-index-bar.is-paused{background:rgba(251,191,36,.2)}
+.ds-index-bar.is-paused .ds-index-bar-fill{background:linear-gradient(90deg,#f59e0b,#fbbf24)}
+.ds-index-cols{display:flex;align-items:center;gap:10px;padding:6px 4px;font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:#98a6bf;border-bottom:1px solid rgba(127,141,168,.28);background:rgba(127,141,168,.06)}
+.ds-index-col-name{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0;text-transform:none;font-size:10.5px;color:#7f8da8}
+.ds-index-col{flex:none;white-space:nowrap}
+.ds-index-events{margin:0 0 12px;padding:8px 4px 0}
+.ds-index-event-list{max-height:126px;overflow:auto;overscroll-behavior:contain}
+.ds-index-event{display:flex;gap:10px;font-size:11px;color:#98a6bf;padding:2px 0}
+.ds-index-act{font-size:10px;padding:0 4px}
+.ds-index-num.is-zero{color:#5d6a80}
+.ds-index-row{display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid rgba(127,141,168,.12);cursor:default;font-variant-numeric:tabular-nums}
+.ds-index-row:hover{background:none}
+.ds-index-name{flex:1;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-index-state{flex:none;box-sizing:border-box;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px;padding:1px 7px;border-radius:5px;border:1px solid rgba(127,141,168,.35);color:#98a6bf}
+.ds-index-state.is-fresh{color:#34d399;border-color:rgba(52,211,153,.5)}
+.ds-index-state.is-missing{color:#fbbf24;border-color:rgba(251,191,36,.5)}
+.ds-index-state.is-failed{color:#f87171;border-color:rgba(248,113,113,.5)}
+.ds-index-num{flex:none;font-size:11px;color:#98a6bf;min-width:48px;text-align:right}
 .ds-deck-foot{display:flex;align-items:center;gap:8px;padding:10px 16px 16px;flex-wrap:wrap}
 .ds-more{height:30px;padding:0 14px;border-radius:9px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 30%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5);font:inherit;font-size:11px;cursor:pointer}
 .ds-more:hover{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 55%,transparent)}
@@ -628,6 +761,8 @@ window.__ModuleLoader__.load({
 `
 
     const openStore = createStore(false)
+    // Drives the little dot on the sidebar entry: visible without opening the panel.
+    const indexBadge = createStore({ pending: 0, running: false })
     const jumpStore = createStore({ state: 'idle', message: '' })
 
     // Survive closing the dialog: reopening must show the last result page
@@ -1745,6 +1880,17 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // The workspace cascade was reported as "changed but no effect"; without the
+    // counts on both sides there is nothing to tell an empty workspace from a
+    // filter that never ran.
+    function reportWorkspace(details) {
+      try {
+        void apiPost({ action: 'diag' }, { scope: 'workspace', ...details }).catch(() => {})
+      } catch {
+        /* diagnostics must never break the panel */
+      }
+    }
+
     async function jumpToHit(ctx, target, t) {
       jumpStore.set({ state: 'jumping', message: t('jump.searching') })
       const anchor = anchorOf(target)
@@ -1929,7 +2075,12 @@ window.__ModuleLoader__.load({
           state: 'failed',
           // Say what actually failed: a session that never opened is a different
           // problem from a message that was not found.
-          message: String((error && error.message) || '') === 'session-not-opened' ? t('jump.notOpened') : t('jump.failed'),
+          message:
+            target.shadowed === true
+              ? t('jump.compacted')
+              : String((error && error.message) || '') === 'session-not-opened'
+                ? t('jump.notOpened')
+                : t('jump.failed'),
         })
         window.setTimeout(() => jumpStore.set({ state: 'idle', message: '' }), 4600)
       } finally {
@@ -1996,6 +2147,7 @@ window.__ModuleLoader__.load({
         if (value === undefined || value === null || value === '') continue
         url.searchParams.set(key, String(value))
       }
+      const sentAt = window.performance && window.performance.now ? window.performance.now() : Date.now()
       return fetch(url.toString(), {
         method: 'GET',
         credentials: 'same-origin',
@@ -2009,6 +2161,10 @@ window.__ModuleLoader__.load({
           payload = await response.json()
         } catch {
           /* fall through with a readable status error */
+        }
+        if (payload && typeof payload === 'object') {
+          const receivedAt = window.performance && window.performance.now ? window.performance.now() : Date.now()
+          payload.elapsedMs = Math.round(receivedAt - sentAt)
         }
         if (!response.ok || !payload || payload.ok === false) {
           const message = payload && payload.error && payload.error.message
@@ -2123,6 +2279,42 @@ window.__ModuleLoader__.load({
     function initialOf(title) {
       const text = String(title || '').trim()
       return text ? text.slice(0, 1).toUpperCase() : '?'
+    }
+
+    // A cwd is compared the way Windows spells it, not the way it was typed:
+    // separator direction, trailing separator and letter case are noise.
+    function normalizeCwd(value) {
+      return String(value == null ? '' : value)
+        .replace(/\\/g, '/')
+        .replace(/\/+$/, '')
+        .toLowerCase()
+    }
+
+    /**
+     * The working directories one workspace owns.
+     *
+     * A workspace in the Host is one exact cwd (index.js `workspaces()` groups
+     * by that exact string) and the Host narrows a search by exact equality, so
+     * the owned set is that same single directory. Offering a Session whose cwd
+     * is merely *under* the workspace here would let the panel ask for a
+     * workspace + session pair the search can only answer with nothing.
+     */
+    function workspaceCwds(workspace) {
+      const path = normalizeCwd(workspace)
+      return path ? new Set([path]) : new Set()
+    }
+
+    function cwdInWorkspace(cwd, workspace) {
+      const owned = workspaceCwds(workspace)
+      return owned.size === 0 || owned.has(normalizeCwd(cwd))
+    }
+
+    /** The Sessions the selected workspace may offer in the picker. */
+    function sessionsInWorkspace(items, workspace) {
+      const list = Array.isArray(items) ? items : []
+      const owned = workspaceCwds(workspace)
+      if (owned.size === 0) return list
+      return list.filter((item) => owned.has(normalizeCwd(item && item.cwd)))
     }
 
     function SearchIcon(props) {
@@ -2271,6 +2463,93 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** Markdown of the current page; attachments stay placeholders plus a list. */
+    async function buildMarkdown(view, items, t) {
+      // The list only carries a snippet; ask the Host for the real text so the
+      // exported file is the conversation, not three clipped lines of it.
+      let texts = []
+      try {
+        const payload = await apiPost({ action: 'export' }, { ids: items.map((item) => item.id) })
+        if (payload && Array.isArray(payload.texts)) texts = payload.texts
+      } catch {
+        texts = []
+      }
+      const lines = []
+      const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
+      lines.push('# FlashAnchor 导出 · ' + (view.query || '（无关键词）'))
+      lines.push('')
+      lines.push('- 导出时间：' + stamp)
+      lines.push('- 命中：' + view.total + ' 条 / ' + (Array.isArray(view.sessions) ? view.sessions.length : 0) + ' 个会话')
+      lines.push('- 类型：' + ((view.types || []).join(' · ') || '全部'))
+      lines.push('- 会话范围：' + (view.scope && view.scope !== 'all' ? view.scope : '所有会话'))
+      lines.push('- 排序：' + (view.sort || 'relevance'))
+      lines.push('- 条目：' + items.length + ' 条' + (Number(view.total) > items.length ? '（本次只导出这些；当前页共 ' + view.total + ' 条命中）' : ''))
+      lines.push('- 附件：只列文件名与原始路径，不导出文件本体')
+      lines.push('')
+      let last = null
+      const files = []
+      for (const item of items) {
+        if (item.sessionId !== last) {
+          last = item.sessionId
+          lines.push('')
+          lines.push('## ' + (item.sessionTitle || item.sessionId))
+          lines.push('')
+        }
+        const where = [item.turn ? t('jump.turn', { turn: item.turn }) : null, item.step ? 'step ' + item.step : null, kindLabel(t, item.kind)]
+          .filter(Boolean)
+          .join(' · ')
+        lines.push('### ' + where + ' · ' + new Date(item.time).toLocaleString())
+        lines.push('')
+        const full = texts[items.indexOf(item)]
+        lines.push(String(full || item.snippet || '').replace(/\r/g, '').trim())
+        if (Array.isArray(item.files) && item.files.length > 0) {
+          for (const file of item.files) {
+            lines.push('')
+            lines.push('![附件: ' + (file.name || basename(file.path)) + ']()')
+            files.push({ name: file.name || basename(file.path), path: file.path || '', session: item.sessionTitle || item.sessionId, turn: item.turn || null })
+          }
+        }
+        lines.push('')
+      }
+      if (files.length > 0) {
+        lines.push('')
+        lines.push('---')
+        lines.push('')
+        lines.push('## 附件清单')
+        lines.push('')
+        lines.push('| 文件名 | 会话 | 轮次 | 原始路径 |')
+        lines.push('| --- | --- | --- | --- |')
+        for (const file of files) {
+          lines.push('| ' + file.name + ' | ' + file.session + ' | ' + (file.turn || '') + ' | ' + (file.path || '（无路径）') + ' |')
+        }
+      }
+      return lines.join('\n')
+    }
+
+    async function saveTextFile(name, text) {
+      const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] })
+          const writable = await handle.createWritable()
+          await writable.write(blob)
+          await writable.close()
+          return true
+        } catch (error) {
+          if (error && error.name === 'AbortError') return false
+        }
+      }
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = name
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+      return true
+    }
+
     function Highlight(props) {
       const text = String(props.text || '')
       const query = String(props.query || '')
@@ -2294,6 +2573,8 @@ window.__ModuleLoader__.load({
 
     function Entry(props) {
       const wide = props.wide === true
+      const badge = useStore(indexBadge)
+      const showBadge = badge.running || badge.pending > 0
       return h(
         'button',
         {
@@ -2305,6 +2586,12 @@ window.__ModuleLoader__.load({
         },
         h(SearchIcon, { size: wide ? 16 : 18, className: 'ds-entry-icon' }),
         wide ? h('span', { className: 'ds-entry-label' }, props.t('entry.label')) : null,
+        showBadge
+          ? h('span', {
+              className: 'ds-entry-dot' + (badge.running ? ' is-busy' : ''),
+              title: badge.running ? props.t('index.busy', { done: 0, total: 0 }) : props.t('index.pendingDot'),
+            })
+          : null,
       )
     }
 
@@ -2349,6 +2636,8 @@ window.__ModuleLoader__.load({
       const [sessionsState, setSessionsState] = React.useState({ loading: false, loaded: false, items: [] })
       const [workspaces, setWorkspaces] = React.useState([])
       const [log, setLog] = React.useState({ enabled: true, path: '', bytes: 0 })
+      const [indexOpen, setIndexOpen] = React.useState(false)
+      const [indexData, setIndexData] = React.useState(null)
       const [data, setData] = React.useState(null)
       // Reopening must show the page the reader left, even when that search was
       // never snapshotted (partial page). The in-memory page is enough.
@@ -2375,6 +2664,26 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = React.useState(null)
       const [history, setHistory] = React.useState([])
       const [savedId, setSavedId] = React.useState(initial.savedId || null)
+      // The index panel reads a cheap snapshot; nothing here rebuilds or scans.
+      React.useEffect(() => {
+        if (!indexOpen) return undefined
+        let alive = true
+        const load = () => {
+          api({ action: 'indexStatus' })
+            .then((payload) => {
+              if (alive) setIndexData(payload)
+            })
+            .catch(() => {
+              if (alive) setIndexData({ rows: [], sessions: 0, docs: 0, missing: 0, error: true })
+            })
+        }
+        load()
+        const timer = window.setInterval(load, 1500)
+        return () => {
+          alive = false
+          window.clearInterval(timer)
+        }
+      }, [indexOpen])
       const [stateReady, setStateReady] = React.useState(false)
       // A history entry is a snapshot of *its* filters. Opening it must not
       // overwrite the filters the reader had before, and leaving it must put
@@ -2408,6 +2717,9 @@ window.__ModuleLoader__.load({
         () => ({ query, scopeMode, selectedSession, types, ext, sort, timeOrder, workspace, long }),
         [query, scopeMode, selectedSession, types, ext, sort, timeOrder, workspace, long],
       )
+      // Everything except the keyword: that is what may re-run a query in place.
+      const filterKey = React.useMemo(() => searchSignature({ ...filters, query: '' }), [filters])
+      const filterKeyRef = React.useRef(null)
       // A snapshot is gated by its own signature; a live page by the sidebar's.
       const currentSignature = viewSaved ? viewSaved.signature : searchSignature(filters)
 
@@ -2510,6 +2822,17 @@ window.__ModuleLoader__.load({
         }
       }, [t])
 
+      // A workspace saved by an earlier visit can be gone (renamed directory,
+      // deleted registration). Keeping it filtered the picker by a workspace that
+      // no longer exists, which reads exactly like "the selector does nothing".
+      React.useEffect(() => {
+        if (!stateReady || !workspace || workspaces.length === 0) return
+        const wanted = normalizeCwd(workspace)
+        if (workspaces.some((entry) => normalizeCwd(entry && entry.cwd) === wanted)) return
+        reportWorkspace({ workspace: String(workspace), reason: 'stale', workspaces: workspaces.length })
+        setWorkspace('')
+      }, [stateReady, workspace, workspaces])
+
       // The index is still loading: poll until it reports ready, then pick up the
       // workspace list it could not answer yet.
       React.useEffect(() => {
@@ -2611,6 +2934,15 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         function onKeyDown(event) {
+          if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+            // With the pointer on a checkbox or slider, Enter used to do nothing
+            // and a filter-only search could not be started from the keyboard.
+            const tag = event.target && event.target.tagName ? String(event.target.tagName).toLowerCase() : ''
+            if (tag === 'textarea') return
+            event.preventDefault()
+            void runSearch()
+            return
+          }
           if (event.key !== 'Escape') return
           event.preventDefault()
           if (resultsOpen) goBack()
@@ -2845,6 +3177,11 @@ window.__ModuleLoader__.load({
       // Filter tweaks re-run the query in place; they never write a history row.
       React.useEffect(() => {
         if (!stateReady || !resultsOpen || !data) return
+        // Typing a keyword is deliberate: it waits for Enter or the button.
+        // Only the other filters re-run the query by themselves.
+        if (filterKeyRef.current === null) filterKeyRef.current = filterKey
+        else if (filterKeyRef.current === filterKey) return
+        else filterKeyRef.current = filterKey
         const current = searchSignature(filters)
         if (viewSaved) {
           // Still the filter set the snapshot was opened over: leave it alone.
@@ -2858,7 +3195,7 @@ window.__ModuleLoader__.load({
           void runSearch(undefined, true, filters, { auto: true, silent: true })
         }, 260)
         return () => window.clearTimeout(timer)
-      }, [stateReady, resultsOpen, data, viewSaved, filters, runSearch])
+      }, [stateReady, resultsOpen, data, viewSaved, filters, filterKey, runSearch])
 
       const updateResults = async () => {
         const payload = await runSearch(undefined, true)
@@ -2920,8 +3257,11 @@ window.__ModuleLoader__.load({
         } catch (reason) {
           if (controller.signal.aborted) return
           if (entryFilters.query.trim() || filterOnlySearch(entryFilters)) {
-            if (reason && reason.message === 'saved result not found') showNotice(t('results.staleRebuild'))
-            await runSearch(entryFilters.query, true, entryFilters, { auto: true })
+            // A snapshot that no longer resolves is normal once the index grew.
+            // Re-search as a normal search so it records a new snapshot: an
+            // auto search is never recorded, which is how the cache was lost
+            // permanently.
+            await runSearch(entryFilters.query, true, entryFilters)
             return
           }
           setResultsOpen(false)
@@ -3063,6 +3403,12 @@ window.__ModuleLoader__.load({
           } else {
             navigate()
           }
+          if (item.locate === false) {
+            onClose()
+            jumpStore.set({ state: 'partial', message: t('jump.imageOnly') })
+            window.setTimeout(() => jumpStore.set({ state: 'idle', message: '' }), 3600)
+            return
+          }
           onClose()
           void jumpToHit(
             ctx,
@@ -3093,10 +3439,27 @@ window.__ModuleLoader__.load({
       }
 
       const applyStatus = (payload) => {
+        if (payload && payload.index) {
+          indexBadge.set({ pending: Number(payload.index.pending) || 0, running: payload.index.running === true })
+        }
         if (payload && payload.index) setIndexStatus((current) => ({ ...current, ...payload.index }))
         if (payload && payload.state && Array.isArray(payload.state.history)) setHistory(payload.state.history)
       }
 
+      const runRebuild = async (id) => {
+        try {
+          const payload = await apiPost({ action: 'index' }, id ? { id } : {})
+          if (payload && payload.index) applyStatus(payload.index)
+          if (indexOpen) void api({ action: 'indexStatus' }).then((next) => setIndexData(next)).catch(() => {})
+        } catch {
+          showNotice(t('results.error'))
+        }
+      }
+      const runIndex = () => {
+        void startIndex().then(() => {
+          if (indexOpen) void api({ action: 'indexStatus' }).then((payload) => setIndexData(payload)).catch(() => {})
+        })
+      }
       const startIndex = async () => {
         try {
           applyStatus(await apiPost({ action: 'index' }, {}))
@@ -3126,9 +3489,18 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // The long index used to answer "重建长文" with silence: a pass that was
+      // already running swallowed the request and nothing on screen changed.
       const longOp = async (op, extra) => {
         try {
-          applyStatus(await apiPost({ action: 'long' }, { op, ...(extra || {}) }))
+          const payload = await apiPost({ action: 'long' }, { op, ...(extra || {}) })
+          applyStatus(payload)
+          const docs = Number(payload && payload.index && payload.index.longDocs) || 0
+          const sessions = Number(payload && payload.index && payload.index.longSessions) || 0
+          if (op === 'auto') showNotice(payload && payload.index && payload.index.autoLong !== false ? t('long.autoOn') : t('long.autoOff'))
+          else if (op === 'clear') showNotice(t('long.cleared', { docs: Number(payload?.cleared?.docs) || 0, sessions: Number(payload?.cleared?.sessions) || 0 }))
+          else if (payload && payload.started && payload.started.queued) showNotice(t('long.queued'))
+          else showNotice(t('long.started', { docs, sessions }))
         } catch {
           showNotice(t('index.failed'))
         }
@@ -3243,7 +3615,9 @@ window.__ModuleLoader__.load({
               onSelectSession: (id) => {
                 if (!id || id === selectedSession) {
                   setSelectedSession('')
-                  setScopeMode('all')
+                  // Keep the scope: switching to 所有会话 behind the reader's back
+                  // changed what the next search means.
+                  setScopeMode('session')
                   return
                 }
                 setSelectedSession(id)
@@ -3254,7 +3628,24 @@ window.__ModuleLoader__.load({
               setSessionFilter,
               workspaces,
               workspace,
-              onWorkspace: setWorkspace,
+              onWorkspace: (next) => {
+                // The session picker is scoped by the workspace; a session outside
+                // the new workspace cannot stay selected.
+                setWorkspace(next)
+                const matched = sessionsInWorkspace(sessionsState.items, next).length
+                setSelectedSession((current) => {
+                  if (!current) return current
+                  const found = sessionsState.items.find((item) => item.id === current)
+                  if (!found) return current
+                  return cwdInWorkspace(found.cwd, next) ? current : ''
+                })
+                reportWorkspace({
+                  workspace: String(next || ''),
+                  sessions: sessionsState.items.length,
+                  matched,
+                  loaded: sessionsState.loaded === true,
+                })
+              },
               objectMode,
               onObject: chooseObject,
               types,
@@ -3281,6 +3672,7 @@ window.__ModuleLoader__.load({
               onToggleScatter: () => setScatter((value) => !value),
               setThreads,
               onStartIndex: startIndex,
+              onOpenIndex: () => setIndexOpen(true),
               onClearIndex: clearIndex,
               onToggleAutoIndex: toggleAutoIndex,
               onLongRebuild: () => longOp('rebuild'),
@@ -3313,6 +3705,27 @@ window.__ModuleLoader__.load({
                 }
               },
             }),
+            indexOpen
+              ? h(IndexPane, {
+                  t,
+                  data: indexData,
+                  onBack: () => setIndexOpen(false),
+                  onRebuild: (id) => runRebuild(id),
+                  onClearEvents: () => {
+                    void apiPost({ action: 'indexEvents' }, { clear: true })
+                      .then(() => api({ action: 'indexStatus' }))
+                      .then((payload) => setIndexData(payload))
+                      .catch(() => {})
+                  },
+                  onTogglePause: () => {
+                    const next = !(indexData && indexData.autoIndex === true)
+                    void apiPost({ action: 'setAutoIndex' }, { autoIndex: next })
+                      .then(() => api({ action: 'indexStatus' }))
+                      .then((payload) => setIndexData(payload))
+                      .catch(() => {})
+                  },
+                })
+              : null,
             h(WelcomePane, {
               t,
               history,
@@ -3324,6 +3737,7 @@ window.__ModuleLoader__.load({
             resultsOpen
               ? h(ResultsDeck, {
                   t,
+                  onNotice: showNotice,
                   data,
                   searching,
                   error,
@@ -3353,7 +3767,9 @@ window.__ModuleLoader__.load({
       const { t, sessionsState } = props
       const filteredSessions = React.useMemo(() => {
         const needle = props.sessionFilter.trim().toLowerCase()
-        return sessionsState.items
+        // Workspace first, then the text filter: the picker must only offer the
+        // Sessions the Host's search would actually look at for this workspace.
+        return sessionsInWorkspace(sessionsState.items, props.workspace)
           .filter((item) => {
             if (!needle) return true
             const title = String(item.title || '').toLowerCase()
@@ -3361,7 +3777,7 @@ window.__ModuleLoader__.load({
             return title.includes(needle) || cwd.includes(needle) || String(item.id).toLowerCase().includes(needle)
           })
           .slice(0, 60)
-      }, [sessionsState.items, props.sessionFilter])
+      }, [sessionsState.items, props.sessionFilter, props.workspace])
 
       const selected = sessionsState.items.find((item) => item.id === props.selectedSession)
       const groups = props.objectMode === 'all' ? ['model', 'user', 'context'] : [props.objectMode]
@@ -3429,7 +3845,13 @@ window.__ModuleLoader__.load({
                   sessionsState.loading
                     ? h('div', { className: 'ds-picker-empty' }, t('scope.loading'))
                     : filteredSessions.length === 0
-                      ? h('div', { className: 'ds-picker-empty' }, t('scope.empty'))
+                      ? h(
+                          'div',
+                          { className: 'ds-picker-empty' },
+                          props.workspace
+                            ? t('scope.emptyWorkspace', { ws: basename(String(props.workspace)) })
+                            : t('scope.empty'),
+                        )
                       : h(
                           'div',
                           { className: 'ds-picker-list', role: 'listbox', 'aria-label': t('scope.session') },
@@ -3625,6 +4047,7 @@ window.__ModuleLoader__.load({
               props.indexStatus.docs > 0 ? t('index.rebuild') : t('index.start'),
             ),
             h('button', { type: 'button', className: 'ds-mini-btn', onClick: props.onClearIndex }, t('index.clear')),
+            h('button', { type: 'button', className: 'ds-mini-btn is-link', onClick: props.onOpenIndex }, t('index.view')),
           ),
           h('div', { className: 'ds-label', style: { marginTop: '10px' } }, h('span', null, t('long.title'))),
           h(
@@ -3634,10 +4057,13 @@ window.__ModuleLoader__.load({
               ? t('long.ready', { docs: props.indexStatus.longDocs, sessions: props.indexStatus.longSessions })
               : t('long.empty'),
           ),
+          // What a "long" document is has always been invisible; say it here so
+          // the empty index is not mistaken for "the feature does nothing".
+          h('div', { className: 'ds-hint' }, t('long.hint')),
           h(
             'div',
             { className: 'ds-index-actions' },
-            h('button', { type: 'button', className: 'ds-mini-btn', onClick: props.onLongRebuild }, t('long.rebuild')),
+            h('button', { type: 'button', className: 'ds-mini-btn', onClick: props.onLongRebuild, title: t('long.rebuildHint') }, t('long.rebuild')),
             h('button', { type: 'button', className: 'ds-mini-btn', onClick: props.onLongClear }, t('long.clear')),
           ),
           h(SwitchRow, {
@@ -3669,6 +4095,153 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('div', { className: 'ds-privacy' }, h(SparkIcon, { size: 11 }), h('span', null, t('welcome.privacy'))),
+        ),
+      )
+    }
+
+    // The index table's column widths live in one place: the header used to
+    // hard-code its own numbers and the rows carried an extra button the header
+    // did not, which is exactly what made "最后更新 / 文档数" look shifted.
+    const INDEX_COLS = { state: '88px', long: '56px', time: '88px', docs: '60px', action: '56px' }
+
+    function IndexPane(props) {
+      const { t, data } = props
+      const all = data && Array.isArray(data.rows) ? data.rows : []
+      const rows = all.filter((row) => Number(row.docs) > 0 || row.state !== 'fresh')
+      const running = data && data.running === true
+      const pending = Math.max(0, Number(data?.pending) || 0)
+      const total = Math.max(0, Number(data?.total) || 0)
+      const done = Math.max(0, Number(data?.done) || 0)
+      // While nothing runs the bar describes the corpus, not the last pass: a
+      // full blue bar under "已就绪" read as "stuck at 100%".
+      const percent = running
+        ? (total > 0 ? Math.round((100 * done) / total) : 0)
+        : (total > 0 ? Math.round((100 * (total - pending)) / total) : 0)
+      const barClass = running ? ' is-running' : pending > 0 ? ' is-paused' : ' is-done'
+      const longDocs = Number(data?.longDocs) || 0
+      const longSessions = Number(data?.longSessions) || 0
+      const events = data && Array.isArray(data.events) ? data.events.slice().reverse() : []
+      const nameOf = (row) => {
+        const title = String(row.title || '').trim()
+        if (!title || /^session-/.test(title)) return t('index.untitled')
+        return title
+      }
+      return h(
+        'section',
+        { className: 'ds-deck', 'aria-label': t('index.title') },
+        h(
+          'div',
+          { className: 'ds-deck-head' },
+          h('button', { type: 'button', className: 'ds-back', onClick: props.onBack }, h(BackIcon, { size: 13 }), t('back')),
+          h(
+            'div',
+            { className: 'ds-deck-titles' },
+            h('h2', null, t('index.title')),
+            h('p', null, t('index.summary', { sessions: Number(data?.sessions) || 0, docs: Number(data?.docs) || 0, missing: Number(data?.missing) || 0 })),
+          ),
+          h(
+            'button',
+            { type: 'button', className: 'ds-mini-btn', onClick: props.onTogglePause, title: t('index.pauseHint') },
+            data && data.autoIndex === false ? t('index.resume') : t('index.pause'),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'ds-deck-scroll' },
+          h(
+            'div',
+            { className: 'ds-index-status' },
+            h('span', null, running ? t('index.busy', { done, total }) : t('index.idle')),
+            h('span', { className: 'ds-index-long' }, t('index.longSummary', { docs: longDocs, sessions: longSessions })),
+            data && data.longQueued ? h('span', { className: 'ds-index-long is-queued' }, t('long.queued')) : null,
+          ),
+          running || pending > 0
+            ? h(
+                'div',
+                { className: 'ds-index-bar' + barClass, role: 'progressbar', 'aria-valuenow': percent, 'aria-valuemin': 0, 'aria-valuemax': 100 },
+                h('div', { className: 'ds-index-bar-fill', style: { width: Math.max(0, Math.min(100, percent)) + '%' } }),
+              )
+            : null,
+          h(
+            'div',
+            { className: 'ds-index-events' },
+            h(
+              'div',
+              { className: 'ds-label' },
+              h('span', null, t('index.events')),
+              events.length > 0
+                ? h(
+                    'button',
+                    { type: 'button', className: 'ds-label-action', onClick: props.onClearEvents, title: t('index.eventsHint') },
+                    t('index.eventsClear'),
+                  )
+                : null,
+            ),
+            events.length === 0
+              ? h('div', { className: 'ds-index-event' }, t('index.eventsEmpty'))
+              : h(
+                  'div',
+                  { className: 'ds-index-event-list' },
+                  events.map((event, index) =>
+                    h(
+                      'div',
+                      { key: index, className: 'ds-index-event' },
+                      h('span', null, new Date(event.at).toLocaleTimeString()),
+                      h('span', null, event.type === 'rebuild' ? t('index.eventRebuild') : t('index.eventIndex')),
+                      h('span', null, (event.docs || 0) + ' ' + t('index.colDocs')),
+                    ),
+                  ),
+                ),
+          ),
+          data && data.error
+            ? h('div', { className: 'ds-deck-empty' }, h('p', null, t('index.needsRestart')))
+            : rows.length === 0
+              ? h('div', { className: 'ds-deck-empty' }, h('p', null, t('results.loading')))
+              : h(
+                  'div',
+                  null,
+                  h(
+                    'div',
+                    { className: 'ds-index-cols' },
+                    h('span', { className: 'ds-index-col-name' }, rows.length + ' ' + t('stats.sessions')),
+                    h('span', { className: 'ds-index-col', style: { width: INDEX_COLS.state } }, t('index.colState')),
+                    h('span', { className: 'ds-index-col', style: { width: INDEX_COLS.long, textAlign: 'right' } }, t('index.colLong')),
+                    h('span', { className: 'ds-index-col', style: { width: INDEX_COLS.time, textAlign: 'right' } }, t('index.colTime')),
+                    h('span', { className: 'ds-index-col', style: { width: INDEX_COLS.docs, textAlign: 'right' } }, t('index.colDocs')),
+                    h('span', { className: 'ds-index-col', style: { width: INDEX_COLS.action } }, ''),
+                  ),
+                  rows.map((row) =>
+                    h(
+                      'div',
+                      { key: row.id, className: 'ds-index-row' },
+                      h('div', { className: 'ds-index-name', title: row.title || row.id }, nameOf(row)),
+                      h(
+                        'span',
+                        { className: 'ds-index-state is-' + (row.state || 'missing'), style: { width: INDEX_COLS.state } },
+                        row.state === 'fresh'
+                          ? t('stats.indexedSessions')
+                          : row.state === 'missing'
+                            ? t('deck.pending', { done: 0, total: 1 })
+                            : row.state,
+                      ),
+                      h(
+                        'span',
+                        { className: 'ds-index-num' + (Number(row.longDocs) > 0 ? '' : ' is-zero'), style: { width: INDEX_COLS.long } },
+                        Number(row.longDocs) > 0 ? String(row.longDocs) : '—',
+                      ),
+                      h('span', { className: 'ds-index-num', style: { width: INDEX_COLS.time } }, row.updatedAt ? relativeTime(t, row.updatedAt) : '—'),
+                      h('span', { className: 'ds-index-num', style: { width: INDEX_COLS.docs } }, String(row.docs || 0)),
+                      h(
+                        'button',
+                        { type: 'button', className: 'ds-mini-btn ds-index-act', style: { width: INDEX_COLS.action }, onClick: () => props.onRebuild(row.id) },
+                        t('index.rebuild'),
+                      ),
+                    ),
+                  ),
+                ),
+          Number(data?.longDocs) === 0 && !running
+            ? h('div', { className: 'ds-hint', style: { marginTop: '10px' } }, t('index.longEmpty'))
+            : null,
         ),
       )
     }
@@ -3767,8 +4340,24 @@ window.__ModuleLoader__.load({
     // rebuilding hundreds of snippets (highlight scan + date formatting) inside
     // a scroll frame was the visible stutter. Stable props let React bail out.
     const ResultRow = React.memo(function ResultRow(props) {
-      const { item, t, query, onOpen } = props
+      const { item, t, query, onOpen, selected, onToggleSelect } = props
       return h(
+        'div',
+        { className: 'ds-result-wrap' + (selected ? ' is-selected' : '') },
+        h(
+          'button',
+          {
+            type: 'button',
+            // Selection is its own control: the row itself still opens the hit.
+            className: 'ds-check' + (selected ? ' is-on' : ''),
+            'aria-pressed': selected === true,
+            'aria-label': t('export.select'),
+            title: t('export.select'),
+            onClick: () => onToggleSelect(item),
+          },
+          selected ? '✓' : '',
+        ),
+        h(
         'button',
         {
           type: 'button',
@@ -3791,6 +4380,9 @@ window.__ModuleLoader__.load({
                 : kindLabel(t, item.kind),
           ),
           item.long ? h('span', { className: 'ds-badge is-long' }, t('long')) : null,
+          item.shadowed
+            ? h('span', { className: 'ds-badge is-shadowed', title: t('result.shadowedHint') }, t('result.shadowed'))
+            : null,
           item.toolName ? h('span', { className: 'ds-toolname' }, item.toolName) : null,
           item.turn ? h('span', { className: 'ds-turn' }, t('result.turn', { turn: item.turn })) : null,
           h('span', { className: 'ds-time', title: new Date(item.time).toLocaleString() }, relativeTime(t, item.time)),
@@ -3805,11 +4397,13 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
+        ),
       )
     })
 
     function ResultsDeck(props) {
       const { t, data, searching, error } = props
+      const notify = typeof props.onNotice === 'function' ? props.onNotice : () => {}
       // A payload is only this filter set's page when its signature says so.
       const view = data && (!data.signature || !props.signature || data.signature === props.signature) ? data : null
       const pending = searching || (data != null && view === null)
@@ -3827,6 +4421,23 @@ window.__ModuleLoader__.load({
         setVisible(PAGE_SIZE)
       }, [view])
       const shown = React.useMemo(() => items.slice(0, visible), [items, visible])
+      // Selection lives on the deck, not on a row: exporting used to be all or
+      // nothing because there was no per-hit state to export a subset from.
+      const [selected, setSelected] = React.useState(() => new Set())
+      React.useEffect(() => {
+        setSelected(new Set())
+      }, [view])
+      const selectedItems = React.useMemo(() => items.filter((item) => selected.has(item.id)), [items, selected])
+      const toggleSelect = React.useCallback((item) => {
+        setSelected((current) => {
+          const next = new Set(current)
+          if (next.has(item.id)) next.delete(item.id)
+          else next.add(item.id)
+          return next
+        })
+      }, [])
+      const selectAll = () => setSelected(new Set(items.map((item) => item.id)))
+      const clearSelection = () => setSelected(new Set())
       const groups = React.useMemo(() => {
         const bySession = new Map()
         for (const item of shown) {
@@ -3859,6 +4470,64 @@ window.__ModuleLoader__.load({
       const openItem = React.useCallback((item) => openRef.current(item), [])
       const goMore = React.useCallback(() => setVisible((value) => value + PAGE_SIZE), [])
       const moreAt = React.useRef(0)
+      const deckScroll = React.useRef(null)
+      // The only honest way to know whether a scroll fix worked: sample real
+      // frame times while the deck is open and write them to diagnostics.log.
+      React.useEffect(() => {
+        const node = deckScroll.current
+        let raf = 0
+        let last = 0
+        let deltas = []
+        let scrolls = 0
+        let longTasks = 0
+        let observer = null
+        const onScroll = () => {
+          scrolls += 1
+        }
+        const tick = (now) => {
+          if (last > 0) deltas.push(now - last)
+          last = now
+          raf = window.requestAnimationFrame(tick)
+        }
+        try {
+          observer = new PerformanceObserver((list) => {
+            longTasks += list.getEntries().length
+          })
+          observer.observe({ entryTypes: ['longtask'] })
+        } catch {
+          observer = null
+        }
+        if (node) node.addEventListener('scroll', onScroll, { passive: true })
+        raf = window.requestAnimationFrame(tick)
+        const timer = window.setInterval(() => {
+          if (deltas.length === 0) return
+          const sorted = deltas.slice().sort((a, b) => a - b)
+          const at = (q) => Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] * 10) / 10
+          void apiPost(
+            { action: 'diag' },
+            {
+              scope: 'perf',
+              frames: sorted.length,
+              p50: at(0.5),
+              p95: at(0.95),
+              worst: Math.round(sorted[sorted.length - 1] * 10) / 10,
+              scrolls,
+              longTasks,
+              rows: document.querySelectorAll('.ds-result').length,
+              nodes: document.querySelectorAll('.ds-root *').length,
+            },
+          ).catch(() => {})
+          deltas = []
+          scrolls = 0
+          longTasks = 0
+        }, 3000)
+        return () => {
+          window.cancelAnimationFrame(raf)
+          window.clearInterval(timer)
+          if (observer) observer.disconnect()
+          if (node) node.removeEventListener('scroll', onScroll)
+        }
+      }, [])
       const longCta =
         props.canSearchLong === true
           ? h(
@@ -3886,7 +4555,7 @@ window.__ModuleLoader__.load({
                 ? t('results.summary', {
                     count: view.total,
                     sessions: Array.isArray(view.sessions) ? view.sessions.length : 0,
-                    ms: view.cached ? Number(view.restoredMs) || 0 : Number(view.tookMs) || 0,
+                    ms: view.cached ? Number(view.elapsedMs ?? view.restoredMs) || 0 : Number(view.tookMs) || 0,
                   })
                 : pending
                   ? t('results.loading')
@@ -3905,6 +4574,25 @@ window.__ModuleLoader__.load({
             },
             h(RefreshIcon, { size: 15, className: searching ? 'ds-spin' : null }),
           ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'ds-icon-btn',
+              title: selected.size > 0 ? t('export.selected', { count: selected.size }) : t('export.title') + ' · ' + t('export.hint'),
+              'aria-label': selected.size > 0 ? t('export.selected', { count: selected.size }) : t('export.title'),
+              onClick: async () => {
+                const list = selectedItems.length > 0 ? selectedItems : items
+                const name = 'flash-anchor-' + new Date().toISOString().slice(0, 10) + '.md'
+                const ok = await saveTextFile(name, await buildMarkdown(view, list, t))
+                if (!ok) return
+                const files = list.reduce((count, item) => count + (Array.isArray(item.files) ? item.files.length : 0), 0)
+                notify(files > 0 ? t('export.doneFiles') : t('export.done'))
+              },
+              disabled: items.length === 0,
+            },
+            h('span', { style: { fontSize: '14px', lineHeight: 1 } }, selectedItems.length > 0 ? '↓ ' + selectedItems.length : '↓'),
+          ),
         ),
         pending ? h('div', { className: 'ds-progress' }) : null,
         h(
@@ -3920,7 +4608,7 @@ window.__ModuleLoader__.load({
             ? h(
                 'span',
                 { className: 'ds-deck-chip' },
-                view.narrowed ? t('deck.narrowed') : t('deck.restored', { ms: Number(view.restoredMs ?? view.tookMs) || 0 }),
+                view.narrowed ? t('deck.narrowed') : t('deck.restored', { ms: Number(view.elapsedMs ?? view.restoredMs ?? view.tookMs) || 0 }),
               )
             : null,
           view && view.cached && Number(view.originalTookMs) >= 0
@@ -3939,6 +4627,20 @@ window.__ModuleLoader__.load({
             : null,
           original && Number.isFinite(original.surfaceMs)
             ? h('span', { className: 'ds-deck-chip' }, t('deck.timing', { surface: original.surfaceMs, match: Number(original.matchMs) || 0 }))
+            : null,
+          items.length > 0
+            ? h(
+                'span',
+                { className: 'ds-deck-select' },
+                h(
+                  'button',
+                  { type: 'button', className: 'ds-deck-link', onClick: selected.size > 0 ? clearSelection : selectAll },
+                  selected.size > 0 ? t('export.selectNone') : t('export.selectAll'),
+                ),
+                selected.size > 0
+                  ? h('span', { className: 'ds-deck-chip is-picked' }, t('export.selectedChip', { count: selected.size }))
+                  : null,
+              )
             : null,
         ),
         error
@@ -3982,9 +4684,14 @@ window.__ModuleLoader__.load({
                   'div',
                   {
                     className: 'ds-deck-scroll',
+                    ref: deckScroll,
                     onScroll: (event) => {
                       const node = event.currentTarget
                       if (remaining <= 0) return
+                      // The DOM grows with every page, and on this machine that is
+                      // what turned a smooth scroll into 35fps. Past the cap the
+                      // reader asks for more explicitly instead of scrolling.
+                      if (shown.length >= 120 && remaining > 12) return
                       if (node.scrollTop + node.clientHeight < node.scrollHeight - 240) return
                       // Growing the list on every scroll event re-rendered the
                       // whole page mid-flick; one growth per 300ms is enough.
@@ -4014,7 +4721,15 @@ window.__ModuleLoader__.load({
                         ),
                       ),
                       group.items.map((item) =>
-                        h(ResultRow, { key: item.id, item, query: view.query, t, onOpen: openItem }),
+                        h(ResultRow, {
+                          key: item.id,
+                          item,
+                          query: view.query,
+                          t,
+                          onOpen: openItem,
+                          selected: selected.has(item.id),
+                          onToggleSelect: toggleSelect,
+                        }),
                       ),
                     ),
                   ),

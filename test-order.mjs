@@ -10,9 +10,30 @@ const source = fs.readFileSync(path.join(HERE, 'client.js'), 'utf8')
 const lines = source.split('\n')
 
 const declared = new Map()
+function declare(name, index) {
+  if (!declared.has(name)) declared.set(name, index + 1)
+}
 lines.forEach((line, index) => {
   const m = line.match(/^\s+(?:const|let|function)\s+([A-Za-z_$][\w$]*)/)
-  if (m && !declared.has(m[1])) declared.set(m[1], index + 1)
+  if (m) declare(m[1], index)
+  // Destructuring is a declaration too: `const [workspace, setWorkspace] =
+  // React.useState(...)` declares `workspace`, and missing it made a correct
+  // dependency array look like a forward reference (the 1.3.4 hook-order bug
+  // this test exists for is a real forward reference, so it must stay sharp).
+  const array = line.match(/^\s+(?:const|let)\s+\[([^\]]+)\]\s*=/)
+  if (array) {
+    for (const entry of array[1].split(',')) {
+      const name = entry.trim()
+      if (/^[A-Za-z_$][\w$]*$/.test(name)) declare(name, index)
+    }
+  }
+  const object = line.match(/^\s+(?:const|let)\s+\{([^}]+)\}\s*=/)
+  if (object) {
+    for (const entry of object[1].split(',')) {
+      const name = entry.split(':').pop().trim()
+      if (/^[A-Za-z_$][\w$]*$/.test(name)) declare(name, index)
+    }
+  }
 })
 
 // Names that may legitimately appear without a local declaration.

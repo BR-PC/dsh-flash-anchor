@@ -1,6 +1,6 @@
 # FlashAnchor / 闪电锚点
 
-[![Release](https://img.shields.io/badge/release-v1.8.3-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
+[![Release](https://img.shields.io/badge/release-v1.9.0-0ea5e9)](https://github.com/BR-PC/dsh-flash-anchor/releases)
 [![License](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-DSH%20Desktop%20%C2%B7%20DSH%20Web-6366f1)](https://github.com/BR-PC/dsh-flash-anchor)
 [![CI](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml/badge.svg)](https://github.com/BR-PC/dsh-flash-anchor/actions/workflows/ci.yml)
@@ -24,7 +24,7 @@
 | [v1.8.0](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.8.0) | **定位修复**：消息节点 key 失效（会话被压缩/重新编号）时，改为按命中文本在本轮/全量已挂载行里定位，不再报“未能定位”；**日志收集**：侧边栏新增开关与日志地址，逐条记录搜索、定位、错误；`diagnostics.log` 结构化 JSONL |
 | [v1.8.1](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.8.1) | 历史记录：搜索后立即出现新条目（索引未完成也记行，只是不留快照）、同一筛选更新同一条、左侧关键词 + 右侧筛选胶囊自适应布局、新增“清空全部”（同时删除关联结果页）；CI 增加历史契约与诊断日志测试 |
 | [v1.8.2](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.8.2) | 修正类型分类：技能目录、运行时/时间快照、压缩检查点、审批提示等**上下文注入**不再算“输入正文”，独立为「上下文注入」；面板改为完全不透明；最近搜索改为卡片并加大字号 |
-| **[v1.8.3](https://github.com/BR-PC/dsh-flash-anchor/releases/tag/v1.8.3)** | **滚动不再掉帧**：离屏结果行跳过布局与绘制（content-visibility）、结果行改为记忆化组件（索引进度刷新不再重建几百行）、触底翻页限流；**索引地址修复**：未切片的块与长文第 0 片曾共用同一个 id，索引会静默丢掉一条（INDEX_VERSION → 6，旧索引自动重建）；CI 回归：三处滞后于实现的契约测试修正，CI 改为只跑 run-tests.mjs 单一入口 |
+| **v1.9.0** | **滚动不再掉帧**（离屏行跳过布局绘制、结果行记忆化、触底翻页限流）；**文档地址稳定**（`chunk: null` 与第 0 片的有意折叠写进契约测试，`INDEX_VERSION` 6）；**归档会话真正退出检索**（归档集合改从 Workspace 控制器的 follow 流读取——旧代码读的 `workspaceRegistry.archivedSessionIds` 字段根本不存在，过滤一直是空操作——并监听归档/取消归档事件，归档瞬间从列表/语料/历史/缓存页消失，同时删普通分片与长文分片、启动清扫无主长文分片）；**工作区真正决定会话候选**（cwd 规范化后与 Host 搜索同口径，切换工作区清掉不属于它的已选会话，失效工作区记忆自动清除）；**历史按关键词成行**、旧筛选集页面保留给「计算后置」；**索引面板可读性**（表头与行共用列宽定义、表头紧贴列表、事件日志限高可滚可清、进度条只在有进度时出现）；**长文索引**（显式重建改为强制全量并支持排队、新增长文列与合计、说明长文是什么、清空回报条数）；**导出**（结果逐条勾选/全选后只导出选中，提示与 Markdown 头部写明「附件只列文件名与路径、不含文件本体」）；CI 单一入口 `node run-tests.mjs`，契约测试补齐归档、工作区级联、地址稳定性、hook 解构、索引面板（20 套件） |
 
 ## 功能
 
@@ -159,14 +159,22 @@ npm pack                      # 生成 flash-anchor-<version>.tgz
 ## 测试
 
 ```bash
+node run-tests.mjs        # 唯一入口：枚举并跑完所有 test-*.mjs，按退出码判决
+# 单独跑某一个：
 node test-core.mjs        # 契约：类型过滤不泄漏、签名回显、scope 缺失
 node test-state.mjs       # 状态持久化、缓存作用域、耗时保留
 node test-prefs.mjs       # 偏好
-node test-order.mjs       # hook 依赖顺序（TDZ）
+node test-order.mjs       # hook 依赖顺序（TDZ，含结构体/数组解构）
 node test-worker.mjs      # 分片一致性、OOM 降级
-node test-locate.mjs      # 23 个定位场景（含冷启动、div 气泡、seq-exact）
+node test-locate.mjs      # 25 个定位场景（含冷启动、div 气泡、seq-exact、无 retained generation）
 node test-events.mjs      # session/event 载荷契约（旧代码必挂）
 node test-v17.mjs         # 1.7.0 契约：懒索引、仅筛选搜索、工作区、长文、文件名、计算后置
+node test-archive.mjs     # 归档：follow 流、事件即时生效、历史/缓存页清理、分片与无主长文分片
+node test-workspace.mjs   # 工作区 → 会话级联：cwd 规范化、精确归属、选择器接线
+node test-dockey.mjs      # 文档地址稳定（存档页依赖）与各字段不撞车
+node test-compact.mjs     # 压缩检查点：被折叠的轮次仍然可搜、标 shadowed
+node test-history.mjs     # 历史：关键词唯一成行、半页不留快照、清空连带快照
+node test-diag.mjs        # diagnostics.log 结构化写入与轮转
 node --expose-gc test-memory.mjs
 node test-stress.mjs
 # 需要本机会话库（不随包发布）：
@@ -176,12 +184,15 @@ node test-anchor.mjs
 
 ## 实机截图
 
-<img width="1249" height="895" alt="展示0" src="https://github.com/user-attachments/assets/a38fce73-d249-412e-855e-474479862fa0" />
+<img width="1205" height="861" alt="搜索与筛选" src="docs/shot-1-search.png" />
 
-<img width="1237" height="894" alt="展示1" src="https://github.com/user-attachments/assets/c12b0a43-4b23-4b14-9bb2-e9b0e97ed422" />
+<img width="1204" height="862" alt="索引状态" src="docs/shot-2-index.png" />
 
-<img width="1130" height="759" alt="展示2" src="https://github.com/user-attachments/assets/24bd2087-2bc0-43f7-a380-25da58ef7c89" />
+<img width="1266" height="893" alt="结果勾选与导出" src="docs/shot-3-results.png" />
 
+<img width="1130" height="759" alt="定位与高亮" src="docs/shot-4-jump.png" />
+
+> 截图中的会话标题、关键词与正文均已打码。
 ## 已知限制
 
 1. 首次建面（清空索引后）需读全部会话日志，本机 26 会话约 1.4 s；这发生在**打开面板之后**，

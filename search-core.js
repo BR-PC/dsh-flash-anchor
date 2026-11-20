@@ -2,10 +2,12 @@
 // indexes written before 1.4.2; subtype/fileIndex keep those distinct too.
 export function docKey(sessionId, doc) {
   const block = doc.blockIndex == null ? '-' : doc.blockIndex
-  // chunk 0 is the first slice of a long block; null means the block was never
-  // sliced. Folding both onto 0 gave them the same address, so an index holding
-  // both silently kept only one. '-' cannot be a real chunk index.
-  const chunk = doc.chunk == null ? '-' : doc.chunk
+  // Stable on purpose: saved result pages store these ids. Changing the scheme
+  // invalidates every snapshot (cache hits disappear and each open re-scans the
+  // whole corpus), so it requires a migration of saved views, not a version bump
+  // on its own. An unsliced block and slice 0 can only coexist when the slicing
+  // threshold changed mid-life, so folding both onto 0 is acceptable here.
+  const chunk = doc.chunk == null ? 0 : doc.chunk
   return sessionId + ':' + doc.seq + ':' + block + ':' + chunk + ':' + doc.kind + ':' + (doc.subtype || '') + ':' + (doc.fileIndex == null ? '' : doc.fileIndex)
 }
 

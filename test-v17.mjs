@@ -124,15 +124,44 @@ await check('narrowing reuses a saved page', async () => {
   assert.equal(narrowed.narrowed, true)
 })
 
-await check('one history row per filter set', async () => {
+await check('history is one row per keyword', async () => {
+  // The row is keyed by what the user typed; the newest filter set owns it, and
+  // the older snapshots stay behind for 计算后置 (narrowing without a rescan).
   const first = parseSearchRequest(new URLSearchParams('q=alpha&types=modelText&sort=relevance'))
-  const second = parseSearchRequest(new URLSearchParams('q=alpha&types=modelText&sort=time'))
+  const second = parseSearchRequest(new URLSearchParams('q=alpha&types=reasoning&sort=time'))
   store.recordSearch(first, { total: 1, items: [], sessions: [] })
-  store.recordSearch(second, { total: 1, items: [], sessions: [] })
-  const rows = store.state.history.filter(
-    (item) => item.query === 'alpha' && item.types.length === 1 && item.types[0] === 'modelText',
-  )
-  assert.equal(rows.length, 2, 'the sort must be part of the row key')
+  const newest = store.recordSearch(second, { total: 1, items: [], sessions: [] })
+  const rows = store.state.history.filter((item) => item.query === 'alpha')
+  assert.equal(rows.length, 1, 'the same keyword must not create sibling rows')
+  assert.equal(rows[0].id, newest.id, 'the row must belong to the newest filter set')
+  assert.deepEqual(rows[0].types, ['reasoning'], 'the row must carry the newest filters')
+  // A different keyword is still its own row.
+  const other = parseSearchRequest(new URLSearchParams('q=beta&types=modelText'))
+  store.recordSearch(other, { total: 0, items: [], sessions: [] })
+  assert.equal(store.state.history.filter((item) => item.query === 'beta').length, 1)
+  assert.equal(store.state.history.filter((item) => item.query === 'alpha').length, 1, 'a second keyword merged into the first')
+})
+
+await check('an explicit rebuild re-reads sessions that are already fresh', async () => {
+  // "重建索引" / "重建长文" used to walk only stale Sessions, so after a completed
+  // pass both buttons did nothing at all.
+  const before = await index.search(parseSearchRequest(new URLSearchParams('q=NEONTAIL&long=1&limit=400')))
+  assert.equal(before.total, 1)
+  // Change the source text behind the index, then rebuild: the new text must win.
+  const target = byId.get('w-b')
+  target.events[1].data.message.content[1].text = 'L'.repeat(30_000) + ' REBUILTTAIL ' + 'x'.repeat(400)
+  index.rebuild()
+  await (async () => {
+    for (let attempt = 0; attempt < 400; attempt += 1) {
+      if (index.warming !== true) return
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    throw new Error('the rebuild never finished')
+  })()
+  const after = await index.search(parseSearchRequest(new URLSearchParams('q=REBUILTTAIL&long=1&limit=400')))
+  assert.equal(after.total, 1, 'the explicit rebuild did not re-read a fresh session')
+  const stale = await index.search(parseSearchRequest(new URLSearchParams('q=NEONTAIL&long=1&limit=400')))
+  assert.equal(stale.total, 0, 'the old text is still indexed after a rebuild')
 })
 
 await check('lazy status', async () => {
