@@ -184,13 +184,16 @@ node test-anchor.mjs
 ```
 
 ## 实机截图
+### 插件面板
+<img width="1202" height="861" alt="插件面板" src="https://github.com/user-attachments/assets/180dde3c-98c2-4dad-9df9-bd58fb47bc2d" />
 
-<img width="1205" height="861" alt="搜索与筛选" src="docs/shot-1-search.png" />
+### 索引面板
+<img width="1200" height="860" alt="索引面板" src="https://github.com/user-attachments/assets/ea5d183c-4371-48b2-850b-4f5424902591" />
 
-<img width="1204" height="862" alt="索引状态" src="docs/shot-2-index.png" />
+### 搜索结果与导出勾选
+<img width="1202" height="859" alt="搜索结果与导出勾选" src="https://github.com/user-attachments/assets/8cd798ee-444d-4ec1-9b15-cf26febffd86" />
 
-<img width="1266" height="893" alt="结果勾选与导出" src="docs/shot-3-results.png" />
-
+### 定位与高亮
 <img width="1130" height="759" alt="定位与高亮" src="docs/shot-4-jump.png" />
 
 > 截图中的会话标题、关键词与正文均已打码。
