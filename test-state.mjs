@@ -34,7 +34,12 @@ assert.equal(stored.compressed ?? null, null)
 await reloaded.saveIndex(new Map([['s1', { seq: 4, docs: [{ text: 'hello' }] }]]))
 const loaded = await reloaded.loadIndex()
 assert.equal(loaded.sessions.s1.seq, 4)
-assert.equal(loaded.sessions.s1.docs.length, 1)
+// 2.0 keeps the manifest as shells (no docs); documents live in a shard that
+// is mounted on demand. Assert the shell, then the shard.
+assert.equal(loaded.sessions.s1.docs, undefined)
+const shard = await reloaded.loadShard('s1')
+assert.equal(shard.docs.length, 1)
+assert.equal(shard.docs[0].text, 'hello')
 
 reloaded.deleteSaved(entry.id)
 await reloaded.saveStateNow()
