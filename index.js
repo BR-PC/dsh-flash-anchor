@@ -29,7 +29,9 @@ const STATE_VERSION = 1
 // 6: injected context became its own doc kind. The docKey scheme itself is
 // deliberately stable — saved pages store addresses derived from it.
 // 7: @-mentioned files became their own documents, so old shards must rebuild.
-const INDEX_VERSION = 7
+// 8: the manifest carries per-session routing metadata (cwd/kinds/chars), and
+//    shards are mounted on demand instead of all being read at bootstrap.
+const INDEX_VERSION = 8
 const TITLE_CACHE_MS = 30_000
 // Background reindexing of a streaming session is a CPU furnace; searches
 // still read it fresh, but automatic tracking may lag a few seconds.
@@ -62,6 +64,30 @@ const PRELOAD_LIMIT = 2000
 const MAX_THREADS = 8
 // Spawning workers only pays off once the matching pass is worth splitting.
 const WORKER_MIN_DOCS = 1500
+// Threads are decided from the work, not from a number the reader has to pick:
+// below AUTO_THREAD_CHARS a single thread scans the corpus as fast as posting it
+// to workers costs, and every extra worker holds its own copy of the text.
+const AUTO_THREAD_CHARS = 40_000_000
+const AUTO_THREAD_MAX = 4
+// A worker corpus is now read from disk by the workers themselves, so a pool
+// costs a decode pass before its first scan. Automatic mode therefore only
+// engages where the scan is genuinely bigger than that: below 40M characters a
+// single thread wins on this hardware (measured: inline 150 ms vs 822 ms for a
+// first 4-worker scan of 19k documents).
+const AUTO_THREAD_MIN_CHARS = 40_000_000
+
+/** Threads for one search: an explicit number, or the automatic policy. */
+function resolveThreads(choice, chars, cores) {
+  // A preloaded corpus is already resident in the Host, so a worker pool would
+  // only duplicate it (and pay a decode/spawn pass) — measured slower on every
+  // corpus this plugin has met. Automatic mode is therefore always one thread;
+  // the pool is an explicit, opt-in experiment.
+  const auto = 1
+  if (choice === 'auto' || choice === undefined || choice === null || choice === '') return { threads: auto, auto: true }
+  const wanted = Number.parseInt(String(choice), 10)
+  if (!Number.isFinite(wanted)) return { threads: auto, auto: true }
+  return { threads: Math.max(1, Math.min(MAX_THREADS, wanted)), auto: false }
+}
 const MAX_QUERY_LENGTH = 300
 // Lazy indexing: a search answers from what is already indexed and lets the
 // rest arrive one session per tick, never blocking the panel on a cold corpus.
@@ -70,11 +96,24 @@ const WARM_TICK_MS = 24
 // Nothing runs in the background while nobody is looking at the panel.
 const PANEL_IDLE_MS = 120_000
 const PERSIST_DEBOUNCE_MS = 30_000
+// Filters settle before we spend CPU reading shards; a search never waits for it.
+const PREFETCH_DEBOUNCE_MS = 300
 // A block longer than this keeps only its head in the ordinary index; the rest
 // lives in the long-document index and is searched on demand.
 const HEAD_CHUNKS = 4
 const LONG_MIN_CHARS = CHUNK_SIZE * HEAD_CHUNKS
 const MAX_QUERY_CACHE = 12
+// Total matched rows kept across cached queries. A high-frequency word answers
+// with tens of thousands of rows, so a small number here silently disabled the
+// cache after a few queries.
+const MAX_QUERY_CACHE_MATCHES = 1_500_000
+// Built pages kept for an exact repeat of one filter set (a filter toggle back
+// and forth is the common case). Each entry is at most `limit` result items.
+const MAX_PAGE_CACHE = 6
+// Mounted-shard budget: how many sessions stay resident, and how many characters a
+// single request may mount before the cap stops bothering (correctness first).
+const MOUNT_KEEP = 40
+const MOUNT_BUDGET_CHARS = 24_000_000
 const MAX_HISTORY = 12
 // Saved views are an LRU cache of ID snapshots, not an archive.
 const MAX_SAVED = 50
@@ -131,6 +170,15 @@ async function handleRequest(index, store, request) {
     index.touch()
 
     if (action === 'boot') {
+      // Restore the remembered filter set's shards in the background instead of
+      // loading the whole corpus: this is the whole point of the routing table.
+      const prefs = (store.state && store.state.prefs) || {}
+      index.prefetch({
+        scope: prefs.scopeMode === 'session' ? prefs.selectedSession || 'all' : 'all',
+        workspace: prefs.workspace || '',
+        types: Array.isArray(prefs.types) && prefs.types.length > 0 ? prefs.types : undefined,
+        long: prefs.long === true,
+      })
       // Never block the panel on the index: loading 26 shards takes a few
       // hundred milliseconds and the reader should see the window first. The
       // first request is what starts bootstrap, so DSH startup stays free.
@@ -151,6 +199,7 @@ async function handleRequest(index, store, request) {
     }
     if (action === 'close') {
       index.setPanelOpen(false)
+      index.cancelPrefetch()
       store.logDiag('panel', { event: 'close' })
       return json({ ok: true })
     }
@@ -158,6 +207,11 @@ async function handleRequest(index, store, request) {
       if (body && body.clear === true) return json({ ok: true, log: await store.clearDiag() })
       if (body && typeof body.enabled === 'boolean') store.setLogCollection(body.enabled)
       return json({ ok: true, log: await store.logInfo() })
+    }
+    if (action === 'prefetch') {
+      // Fire and forget: the client reports the selection and moves on.
+      index.prefetch((body && body.selection) || {})
+      return json({ ok: true, prefetch: index.prefetchState })
     }
     if (action === 'workspaces') {
       // Deliberately does not wait for the index: the workspace list comes from
@@ -182,6 +236,7 @@ async function handleRequest(index, store, request) {
     }
     if (action === 'export') {
       const ids = Array.isArray(body && body.ids) ? body.ids.slice(0, 500) : []
+      await index.mountForDocIds(ids)
       const map = index.docIndex()
       const texts = ids.map((id) => {
         const entry = map.get(id)
@@ -308,6 +363,7 @@ async function handleRequest(index, store, request) {
     const started = Date.now()
     const exact = searchRequest.preload ? null : store.matchSaved(searchRequest)
     if (exact) {
+      await index.mountForDocIds(Object.keys(exact.seqs || {}).map((id) => id + ':'))
       const materialized = index.resolveSaved(exact, searchRequest)
       if (materialized) {
         // Memory hit: this returns before the scan starts, so there is nothing
@@ -330,6 +386,7 @@ async function handleRequest(index, store, request) {
     // whole-corpus scan.
     const related = searchRequest.preload ? null : store.findRelatedSaved(searchRequest)
     if (related) {
+      await index.mountForDocIds(Object.keys(related.seqs || {}).map((id) => id + ':'))
       const narrowed = index.resolveSaved(related, searchRequest)
       if (narrowed) {
         return json({
@@ -448,10 +505,14 @@ function parseSearchRequest(params) {
   const limit = Number.isFinite(requestedLimit)
     ? Math.min(cap, Math.max(1, requestedLimit))
     : cap
-  const requestedThreads = Number.parseInt(params.get('threads') ?? '', 10)
-  const threads = Number.isFinite(requestedThreads)
-    ? Math.min(MAX_THREADS, Math.max(1, requestedThreads))
-    : 2
+  // 'auto' is the default: the Host decides from the corpus size.
+  const rawThreads = params.get('threads')
+  const requestedThreads = rawThreads === null || rawThreads === 'auto' ? 'auto' : Number.parseInt(rawThreads, 10)
+  const threads = requestedThreads === 'auto'
+    ? 'auto'
+    : Number.isFinite(requestedThreads)
+      ? Math.min(MAX_THREADS, Math.max(1, requestedThreads))
+      : 'auto'
   const resolvedTypes = types.length > 0 ? types : [...ALL_TYPES]
   const resolvedScope = scope === 'all' || scope === '' ? null : scope
   return {
@@ -514,12 +575,20 @@ class SearchIndex {
     this.attemptAt = new Map()
     this.longCache = new Map()
     this.queryCache = new Map()
+    // Built pages by exact request; invalidated with the corpus version.
+    this.pageCache = new Map()
     this.bootstrapDone = false
     this.longDocs = 0
     this.longSessions = 0
     // Sessions the Workspace marks archived. The durable registry exposes no
     // accessor for this set — the only contract that publishes it is the
     // workspace controller's follow stream — so it is learned, never guessed.
+    // Sessions whose shard documents are currently in memory (LRU by mount time).
+    this.mounted = new Map()
+    // Preload driven by the filter set: see prefetch() / runPrefetch().
+    this.prefetchState = { state: 'idle', done: 0, total: 0, chars: 0 }
+    this.prefetchTimer = null
+    this.prefetchGeneration = 0
     this.archived = new Set()
     this.archiveSource = 'none'
     this.archiveWatch = null
@@ -805,7 +874,7 @@ class SearchIndex {
       const cached = await this.store.loadIndex()
       if (cached && cached.sessions) {
         this.surfaces = new Map(Object.entries(cached.sessions))
-        this.totalDocs = [...this.surfaces.values()].reduce((sum, entry) => sum + (entry.docs?.length ?? 0), 0)
+        this.totalDocs = [...this.surfaces.values()].reduce((sum, entry) => sum + (Number(entry.docCount) || entry.docs?.length || 0), 0)
         // A legacy unified index is migrated to per-session shards on the first
         // persist instead of being rewritten inside bootstrap.
         if (cached.legacy) for (const id of this.surfaces.keys()) this.dirtySessions.add(id)
@@ -885,7 +954,7 @@ class SearchIndex {
     if (!record) return false
     const cached = this.surfaces.get(id)
     if (cached) {
-      this.totalDocs -= cached.docs?.length ?? 0
+      this.totalDocs -= Number(cached.docCount) || cached.docs?.length || 0
       const previousLong = Number(cached.longCount) || 0
       if (previousLong > 0) {
         this.longDocs -= previousLong
@@ -995,7 +1064,7 @@ class SearchIndex {
   forgetSession(id) {
     const cached = this.surfaces.get(id)
     if (!cached) return
-    this.totalDocs -= cached.docs?.length ?? 0
+    this.totalDocs -= Number(cached.docCount) || cached.docs?.length || 0
     const long = Number(cached.longCount) || 0
     if (long > 0) {
       this.longDocs -= long
@@ -1049,7 +1118,7 @@ class SearchIndex {
         id,
         title: this.titles.get(id) || entry?.fallbackTitle || null,
         cwd: record.header.cwd ?? null,
-        docs: entry?.docs?.length ?? 0,
+        docs: Number(entry?.docCount) || entry?.docs?.length || 0,
         longDocs: Number(entry?.longCount) || 0,
         state: entry ? (entry.error ? 'failed' : 'fresh') : 'missing',
         updatedAt: entry?.builtAt ?? null,
@@ -1080,7 +1149,8 @@ class SearchIndex {
   status() {
     return {
       ready: this.bootstrapDone === true,
-      running: this.warming === true || this.job?.running === true,
+      running: this.warming === true || this.job?.running === true || this.prefetchState.state === 'running',
+      prefetch: this.prefetch,
       done: this.warmState?.done ?? 0,
       total: this.warmState?.total ?? this.records.length,
       pending: this.bootstrapDone ? this.pendingSessions() : 0,
@@ -1107,7 +1177,7 @@ class SearchIndex {
     for (const id of this.surfaces.keys()) {
       if (!live.has(id)) {
         removed = true
-        this.totalDocs -= this.surfaces.get(id)?.docs?.length ?? 0
+        this.totalDocs -= Number(this.surfaces.get(id)?.docCount) || this.surfaces.get(id)?.docs?.length || 0
         this.surfaces.delete(id)
         this.removedSessions.add(id)
         this.corpusVersion += 1
@@ -1166,11 +1236,13 @@ class SearchIndex {
       const removed = new Set(this.removedSessions)
       this.dirtySessions.clear()
       this.removedSessions.clear()
+      this.persistInflight = dirty
       this.persisting = this.store
         .saveIndex(this.surfaces, dirty, removed)
         .catch(() => {})
         .finally(() => {
           this.persisting = null
+          this.persistInflight = null
           if (this.dirtySessions.size > 0 || this.removedSessions.size > 0) this.schedulePersist()
         })
     }, PERSIST_DEBOUNCE_MS)
@@ -1239,6 +1311,7 @@ class SearchIndex {
 
   async clear() {
     await this.ensureReady()
+    this.pageCache.clear()
     if (this.persistTimer) {
       clearTimeout(this.persistTimer)
       this.persistTimer = null
@@ -1297,7 +1370,7 @@ class SearchIndex {
     for (const id of this.surfaces.keys()) {
       if (!liveIds.has(id)) {
         const cached = this.surfaces.get(id)
-        this.totalDocs -= cached.docs.length
+        this.totalDocs -= Number(cached.docCount) || cached.docs?.length || 0
         this.surfaces.delete(id)
         this.removedSessions.add(id)
         this.corpusVersion += 1
@@ -1410,21 +1483,21 @@ class SearchIndex {
       listMs = Date.now() - listStarted
     }
 
-    let targets = this.records
     let scopeMissing = false
-    if (scope) {
-      const exact = this.recordById.get(scope)
-      targets = exact ? [exact] : []
+    if (scope && !this.recordById.get(scope)) {
       // An unknown session id must read as "this session is gone", never as
       // "this session has no matches".
-      scopeMissing = !exact
+      scopeMissing = true
     }
-    // Workspace is the session's cwd: narrowing sessions first means the scan
-    // never touches another workspace's documents.
-    if (workspace) targets = targets.filter((record) => (record.header.cwd ?? '') === workspace)
+    // Route first (metadata only), then mount: a session that holds no requested
+    // kind is never read from disk at all.
+    let targets = this.routeIds({ scope, workspace, types })
+    if (targets.length > 0) await this.mountFor(targets)
 
     const warningsBefore = this.warnings
-    const requestedThreads = Math.max(1, Math.min(MAX_THREADS, Number(threads) || 2))
+    const cores = (os.cpus() || []).length || 4
+    const choice = resolveThreads(threads, this.corpusChars(), cores)
+    const requestedThreads = choice.threads
     const surfaceStarted = Date.now()
     // Lazy: only never-indexed sessions are read inside this request, and only a
     // handful of them. Everything else is answered from the index as it is and
@@ -1488,6 +1561,24 @@ class SearchIndex {
       if (longList.length > 0) docs = docs.concat(longList)
     }
 
+    // A repeat of the exact same request (same words, same filters, same order,
+    // same page size) has already been answered; its page is the answer. This is
+    // what makes flipping a filter back and forth cost nothing.
+    const pageKey = JSON.stringify([
+      qLower,
+      scope || '',
+      workspace || '',
+      long ? 1 : 0,
+      [...(types || [])].sort(),
+      [...(exts || [])].sort(),
+      sort,
+      limit,
+    ])
+    const cachedPage = this.pageCache.get(pageKey)
+    if (cachedPage && cachedPage.version === this.corpusVersion) {
+      return { ...cachedPage.payload, tookMs: Date.now() - started, cachedPage: true }
+    }
+
     // 计算后置: the raw match list of one query is what a filter change reuses.
     // It is keyed by the corpus version, so any index change invalidates it.
     const cacheKey = JSON.stringify([
@@ -1513,15 +1604,10 @@ class SearchIndex {
         // The worker corpus is a *subset* (scope / workspace / kind filters).
         // Keying it on corpusVersion alone let a scoped scan be reused for an
         // unscoped query, which returned one session's hits for the whole store.
-        const shardKey =
-          this.corpusVersion +
-          '|' +
-          docs.length +
-          '|' +
-          (docs[0] && docs[0].id ? docs[0].id : '') +
-          '|' +
-          (docs.length > 0 && docs[docs.length - 1].id ? docs[docs.length - 1].id : '')
-        matches = await this.pool.search(scanRequest, requestedThreads, docs, shardKey)
+        const assignments = await this.workerAssignments(targets, requestedThreads)
+        // The key changes only when a scanned shard's identity or content does.
+        const shardKey = this.routeSignature(targets) + '|' + requestedThreads + '|' + docs.length
+        matches = await this.pool.search(scanRequest, requestedThreads, assignments, shardKey)
         mode = matches ? 'worker' : 'inline-fallback'
       } else if (requestedThreads > 1) {
         mode = 'inline-small'
@@ -1543,23 +1629,18 @@ class SearchIndex {
     }
     const matchMs = Date.now() - matchStarted
 
-    const matched = []
+    // A high-frequency word can match tens of thousands of documents, and the
+    // page needs `limit` of them. Materializing every hit first (snippet, file
+    // list, anchor) was the single largest cost of such a search, and it was
+    // paid for rows the reader never sees. Keep a scalar candidate per hit,
+    // order the candidates, then build items only for the page.
+    const candidates = []
     const perSession = new Map()
     const scanned = docs.length
     for (const match of filtered) {
       const meta = docMeta.get(match.id) || (longMeta ? longMeta.get(match.id) : undefined)
       if (!meta) continue
-      const item = makeResultItem({
-        sessionId: meta.sessionId,
-        sessionTitle: meta.sessionTitle,
-        record: meta.record,
-        doc: meta.doc,
-        matchIndex: match.matchIndex,
-        queryLength: qLower.length,
-        qLower,
-        score: match.score,
-      })
-      matched.push(item)
+      candidates.push({ match, meta, time: Number(meta.doc.time) || 0 })
       let bucket = perSession.get(meta.sessionId)
       if (!bucket) {
         bucket = {
@@ -1577,13 +1658,24 @@ class SearchIndex {
       if (match.score > bucket.best) bucket.best = match.score
     }
 
-    matched.sort((a, b) => {
-      if (sort === 'time') return b.time - a.time || b.score - a.score
-      if (sort === 'time-asc') return a.time - b.time || b.score - a.score
-      return b.score - a.score || b.time - a.time
-    })
-
-    const items = matched.slice(0, limit)
+    const compare = (left, right) => {
+      if (sort === 'time') return right.time - left.time || right.match.score - left.match.score
+      if (sort === 'time-asc') return left.time - right.time || right.match.score - left.match.score
+      return right.match.score - left.match.score || right.time - left.time
+    }
+    candidates.sort(compare)
+    const items = candidates.slice(0, limit).map(({ match, meta }) =>
+      makeResultItem({
+        sessionId: meta.sessionId,
+        sessionTitle: meta.sessionTitle,
+        record: meta.record,
+        doc: meta.doc,
+        matchIndex: match.matchIndex,
+        queryLength: qLower.length,
+        qLower,
+        score: match.score,
+      }),
+    )
     const sessions = [...perSession.values()].sort((a, b) => {
       if (sort === 'time') return b.createdAt - a.createdAt || b.best - a.best
       if (sort === 'time-asc') return a.createdAt - b.createdAt || b.best - a.best
@@ -1596,7 +1688,7 @@ class SearchIndex {
       if (cached?.truncated) truncatedDocs += 1
     }
 
-    return {
+    const payload = {
       query: q,
       scope: scope ?? 'all',
       workspace: workspace || '',
@@ -1611,13 +1703,15 @@ class SearchIndex {
       pending,
       longMs,
       truncatedDocs,
-      total: matched.length,
+      total: candidates.length,
       scanned,
       limit,
-      truncated: matched.length > items.length,
+      truncated: candidates.length > items.length,
       items,
       sessions,
       threads: mode === 'worker' ? requestedThreads : 1,
+      threadsAuto: choice.auto === true,
+      corpusChars: this.corpusChars(),
       mode,
       surfaceMs,
       matchMs,
@@ -1630,6 +1724,11 @@ class SearchIndex {
       warnings: this.warnings - warningsBefore,
       tookMs: Date.now() - started,
     }
+    if (pending === 0) {
+      this.pageCache.set(pageKey, { version: this.corpusVersion, payload })
+      while (this.pageCache.size > MAX_PAGE_CACHE) this.pageCache.delete(this.pageCache.keys().next().value)
+    }
+    return payload
   }
 
   /** Rebuild one session surface when it is new or a live session advanced. */
@@ -1649,7 +1748,7 @@ class SearchIndex {
         cached.compactChecked = true
         this.dirtySessions.add(id)
       } else {
-        this.totalDocs -= cached.docs?.length ?? 0
+        this.totalDocs -= Number(cached.docCount) || cached.docs?.length || 0
         this.surfaces.delete(id)
         this.corpusVersion += 1
       }
@@ -1704,6 +1803,9 @@ class SearchIndex {
       const unchanged =
         !cached.error && (!record.live || (liveSeq !== undefined && cached.seq === liveSeq))
       if (unchanged) {
+        // A shell looks "fresh" by its seq but holds no documents; mount it so
+        // the caller (and the corpus) sees the real content.
+        if (!Array.isArray(cached.docs)) await this.mountEntry(id)
         // Shards written before the compaction fix may hold only the checkpoint,
         // but verifying that costs one readSurface per session — never on a
         // search. Hand it to the background pass and answer from the cache now.
@@ -1738,13 +1840,18 @@ class SearchIndex {
       built.longDocs = longDocs
       built.longCount = longDocs.length
       if (cached) {
-        this.totalDocs -= cached.docs.length
+        this.totalDocs -= Number(cached.docCount) || cached.docs?.length || 0
         const previousLong = Number(cached.longCount) || 0
         if (previousLong > 0) {
           this.longDocs -= previousLong
           this.longSessions -= 1
         }
       }
+      built.docCount = built.docs.length
+      built.chars = built.docs.reduce((sum, doc) => sum + (doc.text ? doc.text.length : 0), 0)
+      built.kinds = [...new Set(built.docs.map((doc) => doc.kind))]
+      built.cwd = record.header.cwd ?? null
+      this.mounted.set(id, Date.now())
       this.surfaces.set(id, built)
       this.totalDocs += built.docs.length
       if (longDocs.length > 0) {
@@ -1781,6 +1888,305 @@ class SearchIndex {
       }
       this.surfaces.set(id, empty)
       return empty
+    }
+  }
+
+  /**
+   * Attach one session's documents. A missing/corrupt shard drops the shell so
+   * the next search re-indexes that session from its log instead of silently
+   * answering from nothing.
+   */
+  async mountEntry(sessionId) {
+    const entry = this.surfaces.get(sessionId)
+    if (!entry) return false
+    if (Array.isArray(entry.docs)) {
+      this.mounted.set(sessionId, Date.now())
+      return true
+    }
+    const shard = await this.store.loadShard(sessionId)
+    if (!shard) {
+      this.forgetSession(sessionId)
+      this.surfaces.delete(sessionId)
+      this.totalDocs -= Number(entry.docCount) || 0
+      return false
+    }
+    entry.docs = shard.docs
+    if (shard.fallbackTitle) entry.fallbackTitle = shard.fallbackTitle
+    entry.docCount = shard.docs.length
+    entry.chars = shard.docs.reduce((sum, doc) => sum + (doc.text ? doc.text.length : 0), 0)
+    this.mounted.set(sessionId, Date.now())
+    this.corpusVersion += 1
+    return true
+  }
+
+  /**
+   * Mount the Sessions a request actually needs, then release the ones that fell
+   * out of the hot set. The budget bounds a pathological corpus; correctness
+   * wins when a request genuinely spans more than it (everything is mounted).
+   */
+  async mountFor(records, options = {}) {
+    const keep = Math.max(1, Number(options.keep) || MOUNT_KEEP)
+    const budget = Math.max(1_000_000, Number(options.budget) || MOUNT_BUDGET_CHARS)
+    const wanted = new Set(records.map((record) => record.header.id))
+    // Release first: the freed text is what makes room for this request.
+    for (const [id, at] of [...this.mounted].sort((left, right) => left[1] - right[1])) {
+      if (this.mounted.size <= keep && !wanted.has(id)) continue
+      const entry = this.surfaces.get(id)
+      if (entry && Array.isArray(entry.docs) && !wanted.has(id)) {
+        entry.docCount = entry.docs.length
+        entry.chars = entry.docs.reduce((sum, doc) => sum + (doc.text ? doc.text.length : 0), 0)
+        delete entry.docs
+        this.mounted.delete(id)
+      }
+    }
+    let spent = 0
+    let mounted = 0
+    const queue = []
+    for (const record of records) {
+      const id = record.header.id
+      const entry = this.surfaces.get(id)
+      if (!entry) continue
+      if (Array.isArray(entry.docs)) {
+        this.mounted.set(id, Date.now())
+        continue
+      }
+      spent += Number(entry.chars) || 0
+      queue.push(id)
+    }
+    const cap = Math.max(queue.length > 0 ? 1 : 0, spent > budget ? queue.length : queue.length)
+    let cursor = 0
+    const workers = Array.from({ length: Math.min(4, cap) }, async () => {
+      while (cursor < queue.length) {
+        const id = queue[cursor]
+        cursor += 1
+        if (await this.mountEntry(id)) mounted += 1
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+    })
+    await Promise.all(workers)
+    if (mounted > 0 && options.prefetchMiss !== false) {
+      // The request needed shards the preload had not prepared. Fast (a few ms
+      // per shard) but it is the one number that says the preload lost the race.
+      this.diag('prefetch-miss', { mounted, wanted: queue.length, state: this.prefetchState.state })
+      this.noteIndexEvent('prefetch-miss', { docs: mounted, wanted: queue.length })
+    }
+    // Release again: the request's own mounts are what pushed the set over.
+    for (const [id, at] of [...this.mounted].sort((left, right) => left[1] - right[1])) {
+      if (this.mounted.size <= keep) break
+      if (wanted.has(id)) continue
+      const entry = this.surfaces.get(id)
+      if (!entry || !Array.isArray(entry.docs)) {
+        this.mounted.delete(id)
+        continue
+      }
+      entry.docCount = entry.docs.length
+      entry.chars = entry.docs.reduce((sum, doc) => sum + (doc.text ? doc.text.length : 0), 0)
+      delete entry.docs
+      this.mounted.delete(id)
+    }
+    return mounted
+  }
+
+  /** Mount the shards that hold the given document addresses. */
+  async mountForDocIds(ids) {
+    const sessions = new Set()
+    for (const id of ids) {
+      const at = String(id || '').indexOf(':')
+      if (at > 0) sessions.add(String(id).slice(0, at))
+    }
+    if (sessions.size === 0) return 0
+    const records = [...sessions].map((id) => this.recordById.get(id)).filter(Boolean)
+    return this.mountFor(records, { keep: Math.max(MOUNT_KEEP, records.length) })
+  }
+
+  /**
+   * Sessions a filter can reach. Metadata only: a session that holds no
+   * requested kind is never mounted, which is the whole point of the routing
+   * table.
+   */
+  routeIds({ scope, workspace, types }) {
+    const wanted = new Set(Array.isArray(types) && types.length > 0 ? types : ALL_TYPES)
+    return this.records.filter((record) => {
+      const id = record.header.id
+      if (scope && id !== scope) return false
+      if (workspace && (record.header.cwd ?? '') !== workspace) return false
+      const meta = this.surfaces.get(id)
+      // A shell without kinds is unknown, not empty: keep it.
+      if (meta && Array.isArray(meta.kinds) && meta.kinds.length > 0) {
+        // Kind-level: a session that holds none of the requested kinds cannot
+        // contribute a hit, so it is never read from disk.
+        if (!meta.kinds.some((kind) => wanted.has(kind))) return false
+      }
+      return true
+    })
+  }
+
+  /** Characters of indexed text: what the thread policy is decided on. */
+  corpusChars() {
+    let total = 0
+    for (const entry of this.surfaces.values()) total += Number(entry.chars) || 0
+    return total
+  }
+
+  /**
+   * Fingerprint of the sessions one search will scan. It replaces corpusVersion
+   * as the worker-corpus key: that counter moves whenever ANY session is
+   * re-indexed (the background pass does this constantly while the panel is
+   * open), and every move re-posted the whole corpus to every worker.
+   */
+  routeSignature(records) {
+    let hash = 2166136261
+    const mix = (value) => {
+      const text = String(value)
+      for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index)
+        hash = Math.imul(hash, 16777619) >>> 0
+      }
+    }
+    for (const record of records) {
+      const entry = this.surfaces.get(record.header.id)
+      mix(record.header.id)
+      mix(entry && entry.seq != null ? entry.seq : '')
+      mix(entry && entry.docCount != null ? entry.docCount : '')
+    }
+    return records.length + ':' + hash.toString(36)
+  }
+  /**
+   * One array per worker: which shard FILES it owns, balanced by the characters
+   * each session holds. Only identities travel — the worker decodes the files
+   * itself, so the corpus is never cloned through postMessage.
+   *
+   * A shard that is not on disk yet (freshly indexed, persist debounced) is the
+   * one exception: its documents are sent so the scan stays correct.
+   */
+  async workerAssignments(records, size) {
+    const shards = []
+    for (const record of records) {
+      const id = record.header.id
+      const entry = this.surfaces.get(id)
+      const chars = Number(entry && entry.chars) || 0
+      const canRead = typeof this.store.sessionIndexFile === 'function'
+      const path = canRead ? this.store.sessionIndexFile(id) : null
+      let persisted = false
+      if (path) {
+        const dirty = this.dirtySessions.has(id) || (this.persistInflight && this.persistInflight.has(id))
+        if (!dirty) {
+          try {
+            await fs.access(path)
+            persisted = true
+          } catch {
+            persisted = false
+          }
+        }
+      }
+      shards.push(persisted ? { id, path, chars } : { id, path, chars, docs: (entry && entry.docs) || [] })
+    }
+    shards.sort((left, right) => right.chars - left.chars)
+    const buckets = Array.from({ length: size }, () => [])
+    const weight = new Array(size).fill(0)
+    for (const shard of shards) {
+      let target = 0
+      for (let index = 1; index < size; index += 1) if (weight[index] < weight[target]) target = index
+      buckets[target].push(shard)
+      weight[target] += shard.chars
+    }
+    return buckets
+  }
+
+  /**
+   * Preload the shards a filter set can reach, while the reader is still typing.
+   *
+   * The search path must never pay for gzip: a shard is decoded here, in the
+   * 300 ms window after the filters settle, and released when a later filter set
+   * no longer includes it. A search that still finds an unmounted shard mounts
+   * it inline and records `prefetch-miss`, which is the signal that this preload
+   * failed to keep up — never a reason to make the search wait.
+   */
+  prefetch(selection, options = {}) {
+    const generation = (this.prefetchGeneration || 0) + 1
+    this.prefetchGeneration = generation
+    if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
+    const delay = Math.max(0, Number(options.debounce != null ? options.debounce : PREFETCH_DEBOUNCE_MS))
+    this.prefetchTimer = setTimeout(() => {
+      this.prefetchTimer = null
+      void this.runPrefetch(selection || {}, generation)
+    }, delay)
+  }
+
+  async runPrefetch(selection, generation) {
+    try {
+      await this.ensureReady()
+      if (generation !== this.prefetchGeneration) return
+      const filters = {
+        scope: selection.scope && selection.scope !== 'all' ? String(selection.scope) : null,
+        workspace: String(selection.workspace || ''),
+        types: Array.isArray(selection.types) && selection.types.length > 0 ? selection.types : ALL_TYPES,
+      }
+      const records = this.routeIds(filters)
+      const total = records.length
+      this.prefetchState = { state: 'running', done: 0, total, chars: this.mountedChars(), startedAt: Date.now() }
+      // Release first, so the new selection fits in the same budget.
+      this.releaseBeyond(new Set(records.map((record) => record.header.id)))
+      let done = 0
+      let cursor = 0
+      const batch = 4
+      while (cursor < records.length) {
+        if (generation !== this.prefetchGeneration) {
+          this.prefetchState = { ...this.prefetchState, state: 'cancelled' }
+          return
+        }
+        const slice = records.slice(cursor, cursor + batch)
+        cursor += batch
+        for (const record of slice) {
+          const id = record.header.id
+          const entry = this.surfaces.get(id)
+          if (!entry) continue
+          if (!Array.isArray(entry.docs)) await this.mountEntry(id)
+          done += 1
+        }
+        this.prefetchState = { state: 'running', done, total, chars: this.mountedChars() }
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      this.prefetchState = { state: 'ready', done, total, chars: this.mountedChars(), at: Date.now() }
+      this.diag('prefetch', { done, total, chars: this.prefetchState.chars, selection: filters })
+    } catch (error) {
+      this.prefetchState = { ...this.prefetchState, state: 'error' }
+      this.diag('prefetch', { error: String((error && error.message) || error) })
+    }
+  }
+
+  /** A closed panel must not keep decoding shards in the background. */
+  cancelPrefetch() {
+    this.prefetchGeneration = (this.prefetchGeneration || 0) + 1
+    if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
+    this.prefetchTimer = null
+    if (this.prefetchState.state === 'running') this.prefetchState = { ...this.prefetchState, state: 'idle' }
+  }
+
+  /** Characters currently resident (mounted shards only). */
+  mountedChars() {
+    let total = 0
+    for (const id of this.mounted.keys()) {
+      const entry = this.surfaces.get(id)
+      total += Array.isArray(entry && entry.docs)
+        ? entry.docs.reduce((sum, doc) => sum + (doc.text ? doc.text.length : 0), 0)
+        : Number(entry && entry.chars) || 0
+    }
+    return total
+  }
+
+  /** Release every mounted shard that is not in `keep`. */
+  releaseBeyond(keep) {
+    for (const id of [...this.mounted.keys()]) {
+      if (keep.has(id)) continue
+      const entry = this.surfaces.get(id)
+      if (entry && Array.isArray(entry.docs)) {
+        entry.docCount = entry.docs.length
+        entry.chars = entry.docs.reduce((sum, doc) => sum + (doc.text ? doc.text.length : 0), 0)
+        delete entry.docs
+        this.corpusVersion += 1
+      }
+      this.mounted.delete(id)
     }
   }
 
@@ -1843,6 +2249,8 @@ class SearchIndex {
       const record = this.recordById.get(sessionId)
       if (!record) continue
       const sessionTitle = this.titleOf(sessionId) ?? sessionId
+      // A shell is not mounted: its documents are not part of this corpus.
+      if (!Array.isArray(entry.docs)) continue
       for (const doc of entry.docs) {
         const id = docKey(sessionId, doc)
         const item = {
@@ -1883,9 +2291,14 @@ class SearchIndex {
     this.queryCache.delete(key)
     this.queryCache.set(key, { version: this.corpusVersion, matches })
     this.queryCacheSize = (this.queryCacheSize || 0) + matches.length
-    while (this.queryCache.size > MAX_QUERY_CACHE || (this.queryCacheSize || 0) > 120_000) {
+    // The cap used to be 120k MATCHES: four high-frequency queries filled it,
+    // and from then on the freshly stored entry was the oldest one and got
+    // evicted immediately — so the cache was off exactly for the queries that
+    // needed it. Cap by entry count, keep a generous match budget, and never
+    // evict the entry that was just written.
+    while (this.queryCache.size > MAX_QUERY_CACHE || (this.queryCacheSize || 0) > MAX_QUERY_CACHE_MATCHES) {
       const oldest = this.queryCache.keys().next().value
-      if (oldest === undefined) break
+      if (oldest === undefined || oldest === key) break
       this.queryCacheSize -= this.queryCache.get(oldest)?.matches.length ?? 0
       this.queryCache.delete(oldest)
     }
@@ -2094,6 +2507,13 @@ class SearchIndex {
     // The follow stream outlives the plugin unless it is cancelled here.
     if (this.archiveWatch) this.archiveWatch.abort()
     this.archiveWatch = null
+    if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
+    this.prefetchTimer = null
+    try {
+      if (this.store && typeof this.store.close === 'function') void this.store.close()
+    } catch {
+      /* a store that cannot close is not a reason to fail the reload */
+    }
     this.warming = false
     this.openClients = 0
     this.longCache.clear()
@@ -3037,6 +3457,19 @@ class StateStore {
     }, 220)
   }
 
+  /**
+   * Stop the debounced writers and hand back whatever is still being written.
+   * Without this a reload (or a test that removes the data directory) could race
+   * a pending state write and fail on Windows with EPERM.
+   */
+  close() {
+    if (this.stateTimer) clearTimeout(this.stateTimer)
+    if (this.indexTimer) clearTimeout(this.indexTimer)
+    this.stateTimer = null
+    this.indexTimer = null
+    return this.writeChain.catch(() => {})
+  }
+
   async saveStateNow() {
     if (this.stateTimer) {
       clearTimeout(this.stateTimer)
@@ -3081,6 +3514,12 @@ class StateStore {
     }
   }
 
+  /**
+   * Read the manifest only. Its per-session entries are the routing table: who
+   * exists, which kinds they hold, and how many characters they cost. Reading
+   * every shard at bootstrap is what put the whole corpus in memory before a
+   * single search ran; a shard is now read when a filter actually reaches it.
+   */
   async loadIndex() {
     let manifest
     try {
@@ -3093,28 +3532,22 @@ class StateStore {
     if (manifest?.version === 2 && manifest.sessions) return { ...manifest, legacy: true }
     if (manifest?.version !== INDEX_VERSION || !manifest.sessions) return null
     const sessions = {}
-    // Four shards at a time, asynchronously: the old synchronous gunzip of all
-    // 26 shards blocked the Host event loop for ~320 ms exactly when the panel
-    // opened, which is the stutter that followed every click on the entry. The
-    // reads decompress on the libuv pool, so the UI thread keeps breathing.
-    let cursor = 0
-    const entries = Object.entries(manifest.sessions)
-    const workers = Array.from({ length: Math.min(4, entries.length) }, async () => {
-      while (cursor < entries.length) {
-        const index = cursor
-        cursor += 1
-        const [id, entry] = entries[index]
-        try {
-          const parsed = JSON.parse((await gunzip(await fs.readFile(this.sessionIndexFile(id)))).toString('utf8'))
-          if (Array.isArray(parsed?.docs)) sessions[id] = { ...entry, ...parsed }
-        } catch {
-          /* a missing/corrupt shard is simply re-indexed */
-        }
-        await new Promise((resolve) => setImmediate(resolve))
-      }
-    })
-    await Promise.all(workers)
+    for (const [id, entry] of Object.entries(manifest.sessions)) {
+      // A shell: metadata plus (later) the documents. `docs` absent means
+      // "not mounted".
+      sessions[id] = { ...entry }
+    }
     return { version: INDEX_VERSION, savedAt: manifest.savedAt, sessions }
+  }
+
+  /** Read one session's shard and attach its documents (idempotent). */
+  async loadShard(sessionId) {
+    try {
+      const parsed = JSON.parse((await gunzip(await fs.readFile(this.sessionIndexFile(sessionId)))).toString('utf8'))
+      return Array.isArray(parsed?.docs) ? parsed : null
+    } catch {
+      return null
+    }
   }
 
   /**
@@ -3133,8 +3566,12 @@ class StateStore {
         seq: entry.seq ?? null,
         builtAt: entry.builtAt ?? null,
         truncated: entry.truncated === true,
-        docCount: entry.docs?.length ?? 0,
+        docCount: Number(entry.docCount) || entry.docs?.length || 0,
         longCount: Number(entry.longCount) || 0,
+        chars: Number(entry.chars) || 0,
+        kinds: Array.isArray(entry.kinds) ? entry.kinds : [],
+        cwd: entry.cwd ?? null,
+        fallbackTitle: entry.fallbackTitle ?? null,
       }
     }
     this.writeChain = this.writeChain
@@ -3233,6 +3670,7 @@ async function writeAtomic(file, data) {
 /** Pure helpers exported for local contracts tests; not a public plugin API. */
 export const __test = {
   SearchIndex,
+  resolveThreads,
   StateStore,
   buildSurfaceDocs,
   makeResultItem,

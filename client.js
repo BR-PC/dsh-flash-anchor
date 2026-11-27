@@ -86,6 +86,7 @@ window.__ModuleLoader__.load({
       "results.empty": "没有找到匹配内容",
       "results.emptyHint": "换个关键词，或放宽搜索范围与目标类型",
       "results.loading": "正在检索会话…",
+      "results.filterChanged": "筛选条件已变化，当前结果不属于这组筛选",
       "results.error": "搜索失败",
       "results.retry": "重试",
       "results.refresh": "重新搜索",
@@ -160,6 +161,7 @@ window.__ModuleLoader__.load({
       "export.select": "选中这条结果",
       "export.selectAll": "全选",
       "export.selectNone": "取消全选",
+      "export.clearSelected": "取消所选",
       "export.selected": "导出选中 {count} 条",
       "export.selectedChip": "已选 {count} 条",
       "jump.imageOnly": "图片没有可定位的文本，已打开所在会话",
@@ -180,6 +182,9 @@ window.__ModuleLoader__.load({
       "settings.scatter": "多线程分片搜索",
       "settings.scatterHint": "按线程数并发扫描会话；建议不超过 CPU 物理核心数。",
       "settings.threads": "线程数",
+      "settings.autoThreads": "自动线程数",
+      "settings.autoThreadsHint": "按语料体积自动决定（小语料单线程最快，大语料才分片）；关掉可手动指定。",
+      "deck.threadsAuto": "自动 · {n} 线程",
       "settings.autoIndex": "自动索引",
       "settings.autoIndexHint": "会话有新内容时自动更新索引。",
       "index.title": "索引",
@@ -211,6 +216,8 @@ window.__ModuleLoader__.load({
       "long.empty": "暂无长文",
       "long.hint": "长文＝单个代码块/正文超过 4000 字、被普通索引按 4000 字切开后的剩余部分；勾选「包含长文内容（较慢）」才会扫描它们。",
       "long.rebuildHint": "重新读取每个会话并重写长文分片；后台进行，正在进行时点击会排队。",
+      "prefetch.running": "正在预载分片 {done}/{total}（搜索不必等它）",
+      "status.ready": "就绪 · {sessions} 个会话 · {docs} 条文档",
       "long.auto": "自动索引长文",
       "long.rebuild": "重建长文",
       "long.clear": "清空长文",
@@ -262,6 +269,7 @@ window.__ModuleLoader__.load({
       "index.pendingDot": "有会话等待索引",
       "index.eventRebuild": "重建",
       "index.eventIndex": "建立索引",
+      "index.eventMiss": "预取未跟上（内联挂载 {done}/{total}）",
       "index.resume": "继续自动索引",
       "index.view": "查看索引状态 →",
       "index.needsRestart": "索引面板需要重启 DSH 才能启用（宿主新增了 indexStatus 接口）",
@@ -321,6 +329,7 @@ window.__ModuleLoader__.load({
       "results.empty": "No matching content",
       "results.emptyHint": "Try another phrase or widen the scope and target types",
       "results.loading": "Searching sessions…",
+      "results.filterChanged": "Filters changed: this page belongs to a different filter set",
       "results.error": "Search failed",
       "results.retry": "Retry",
       "results.refresh": "Search again",
@@ -395,6 +404,7 @@ window.__ModuleLoader__.load({
       "export.select": "Select this result",
       "export.selectAll": "Select all",
       "export.selectNone": "Clear selection",
+      "export.clearSelected": "Clear selected",
       "export.selected": "Export {count} selected",
       "export.selectedChip": "{count} selected",
       "jump.imageOnly": "An image has no text to jump to; its session is opened",
@@ -415,6 +425,9 @@ window.__ModuleLoader__.load({
       "settings.scatter": "Scatter-gather search",
       "settings.scatterHint": "Scan sessions concurrently; keep the thread count at or below physical cores.",
       "settings.threads": "Threads",
+      "settings.autoThreads": "Automatic thread count",
+      "settings.autoThreadsHint": "Chosen from the corpus size (one thread is fastest for small corpora). Turn it off to pick a number yourself.",
+      "deck.threadsAuto": "auto · {n} threads",
       "settings.autoIndex": "Auto indexing",
       "settings.autoIndexHint": "Refresh the index when a session gets new content.",
       "index.title": "Index",
@@ -446,6 +459,8 @@ window.__ModuleLoader__.load({
       "long.empty": "No long text yet",
       "long.hint": "A long document is the remainder of a code block or message past 4000 characters, which the ordinary index slices off. Tick \"Include long text (slower)\" to scan them.",
       "long.rebuildHint": "Re-reads every session and rewrites the long shards in the background; pressing it during a running pass queues it.",
+      "prefetch.running": "Preloading shards {done}/{total} (searches never wait for it)",
+      "status.ready": "Ready · {sessions} sessions · {docs} documents",
       "long.auto": "Index long text automatically",
       "long.rebuild": "Rebuild long text",
       "long.clear": "Clear long text",
@@ -497,6 +512,7 @@ window.__ModuleLoader__.load({
       "index.pendingDot": "Sessions waiting to be indexed",
       "index.eventRebuild": "rebuild",
       "index.eventIndex": "index",
+      "index.eventMiss": "prefetch missed ({done}/{total} mounted inline)",
       "index.resume": "Resume auto index",
       "index.view": "View index status →",
       "index.needsRestart": "Restart DSH to enable the index panel (the Host gained an indexStatus action)",
@@ -519,7 +535,7 @@ window.__ModuleLoader__.load({
 .ds-modal{position:relative;display:flex;flex-direction:column;width:min(1200px,94vw);height:min(860px,92vh);border-radius:26px;overflow:hidden;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l2,#8ea0c0) 48%,transparent);/* Opaque on purpose: even 2% transparency makes Chromium blend this
    1200x860 surface with the backdrop on every frame while the list scrolls,
    and a 120px-blur shadow adds a second large layer. Cost without benefit. */
-  background:var(--dsw-alias-bg-overlay,#121620);box-shadow:none;contain:layout paint style;animation:ds-pop .22s cubic-bezier(.2,.85,.25,1)}
+  background:var(--dsw-alias-bg-overlay,#121620);box-shadow:0 30px 70px rgba(8,12,22,.34),0 2px 8px rgba(8,12,22,.18);contain:layout paint style;animation:ds-pop .22s cubic-bezier(.2,.85,.25,1)}
 /* Blur is opt-in: the slider starts at 0 and a non-zero value is the only way
    the compositor pays for it. */
 .ds-root.is-blurred .ds-modal{backdrop-filter:blur(var(--ds-blur,16px)) saturate(1.2)}
@@ -546,8 +562,20 @@ window.__ModuleLoader__.load({
 .ds-icon-btn{width:34px;height:34px;display:grid;place-items:center;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--dsw-alias-label-secondary,#98a6bf);cursor:pointer;transition:background .16s,color .16s}
 .ds-icon-btn:hover{background:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 14%,transparent);color:var(--dsw-alias-label-primary,#e8ecf5)}
 .ds-body{position:relative;z-index:1;flex:1;min-height:0;display:flex}
-.ds-side{width:312px;flex:none;height:100%;min-height:0;display:flex;flex-direction:column;gap:0;padding:16px 14px 12px;overflow:auto;overscroll-behavior:contain;border-right:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 30%,transparent);background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-bg-layer-1,#10141c) 38%,transparent),color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 18%,transparent))}
+/* One status line for the right pane: preloading / indexing / ready. */
+.ds-statusbar{position:absolute;left:312px;right:0;bottom:0;z-index:8;display:flex;align-items:center;gap:8px;height:28px;padding:0 16px;font-size:10.5px;letter-spacing:.1px;color:var(--dsw-alias-label-secondary,#98a6bf);background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-bg-overlay,#121620) 88%,transparent),var(--dsw-alias-bg-overlay,#121620));border-top:1px solid color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 16%,transparent);pointer-events:none}
+.ds-statusbar.is-full{left:0}
+.ds-statusbar-dot{flex:none;width:6px;height:6px;border-radius:50%;background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d399) 85%,transparent)}
+.ds-statusbar.is-busy .ds-statusbar-dot{background:var(--dsw-alias-brand-primary,#0ea5e9);animation:ds-blink 1.2s ease-in-out infinite}
+.ds-statusbar-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ds-statusbar-bar{flex:none;width:120px;height:3px;border-radius:2px;background:rgba(127,141,168,.22);overflow:hidden}
+.ds-statusbar-bar span{display:block;height:100%;background:linear-gradient(90deg,#0ea5e9,#06b6d4);transition:width .25s ease}
+.ds-main{padding-bottom:34px}
+.ds-deck-scroll{padding-bottom:30px}
+.ds-side{width:312px;flex:none;height:100%;min-height:0;display:flex;flex-direction:column;gap:0;padding:16px 14px 12px;overflow:auto;overscroll-behavior:contain;border-right:1px solid color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 24%,transparent);box-shadow:inset -14px 0 22px -24px rgba(8,12,22,.45);background:linear-gradient(180deg,color-mix(in srgb,var(--dsw-alias-bg-layer-1,#10141c) 38%,transparent),color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 18%,transparent))}
 .ds-section{margin-bottom:13px}
+.ds-section + .ds-section{border-top:1px solid color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 15%,transparent);padding-top:11px}
+.ds-history{border:1px solid color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 18%,transparent);box-shadow:0 1px 2px rgba(8,12,22,.05),0 12px 26px -20px rgba(8,12,22,.4)}
 .ds-label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 7px;font-size:11.5px;font-weight:650;letter-spacing:.85px;text-transform:uppercase;color:var(--dsw-alias-label-secondary,#98a6bf)}
 .ds-label-hint{font-size:10.5px;font-weight:450;letter-spacing:.1px;text-transform:none;color:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 78%,transparent)}
 .ds-seg{display:flex;gap:2px;padding:3px;border-radius:11px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 32%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-base,#0b0f18) 34%,transparent)}
@@ -632,8 +660,8 @@ window.__ModuleLoader__.load({
 .ds-result-wrap{display:flex;align-items:flex-start;gap:8px}
 .ds-result-wrap .ds-result{flex:1 1 auto;min-width:0}
 .ds-result-wrap.is-selected .ds-result{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 8%,transparent)}
-.ds-check{flex:none;width:18px;height:18px;margin-top:9px;padding:0;border-radius:5px;border:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,#7f8da8) 55%,transparent);background:transparent;color:#fff;font-size:11px;line-height:1;cursor:pointer}
-.ds-check:hover{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 70%,transparent)}
+.ds-check{flex:none;width:18px;height:18px;margin-top:9px;padding:0;border-radius:5px;border:1.5px solid color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 78%,transparent);background:color-mix(in srgb,var(--dsw-alias-bg-overlay,#121620) 88%,#fff 12%);box-shadow:0 1px 2px rgba(8,12,22,.14);color:#fff;font-size:11px;font-weight:700;line-height:1;cursor:pointer;transition:background .12s,border-color .12s,transform .12s}
+.ds-check:hover{border-color:var(--dsw-alias-brand-primary,#0ea5e9);transform:translateY(-1px)}
 .ds-check.is-on{background:var(--dsw-alias-brand-primary,#0ea5e9);border-color:var(--dsw-alias-brand-primary,#0ea5e9)}
 .ds-deck-select{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
 .ds-deck-link{padding:0;border:0;background:none;color:var(--dsw-alias-brand-primary,#0ea5e9);font:inherit;font-size:10.5px;cursor:pointer}
@@ -690,8 +718,16 @@ window.__ModuleLoader__.load({
 .ds-jump-dot{width:7px;height:7px;flex:none;border-radius:50%;background:var(--dsw-alias-brand-primary,#0ea5e9);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 18%,transparent)}
 .ds-jump-toast.is-done .ds-jump-dot{background:var(--dsw-alias-state-success-primary,#34d399);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-success-primary,#34d399) 18%,transparent)}
 .ds-jump-toast.is-failed .ds-jump-dot{background:currentColor;box-shadow:none}
-.ds-jump-target{border-radius:10px;animation:ds-hit-glow 3.2s ease}
-@keyframes ds-hit-glow{0%,100%{box-shadow:0 0 0 0 transparent;background-color:transparent}10%,76%{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 70%,transparent),0 0 34px color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 26%,transparent);background-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#0ea5e9) 9%,transparent)}}
+/* Colours are literal on purpose: the host theme's brand token rendered as a
+   hard near-black ring around the whole message, which is what "高亮框显示异常"
+   looked like. A soft blue ring reads the same in light and dark themes. */
+.ds-jump-target{border-radius:10px;outline:2px solid transparent;outline-offset:3px;animation:ds-hit-glow 3.4s ease both}
+@keyframes ds-hit-glow{
+  0%{outline-color:rgba(14,165,233,0);box-shadow:none;background-color:transparent}
+  10%{outline-color:rgba(14,165,233,.92);box-shadow:0 0 0 5px rgba(14,165,233,.16);background-color:rgba(14,165,233,.10)}
+  74%{outline-color:rgba(14,165,233,.92);box-shadow:0 0 0 5px rgba(14,165,233,.16);background-color:rgba(14,165,233,.10)}
+  100%{outline-color:rgba(14,165,233,0);box-shadow:none;background-color:transparent}
+}
 ::highlight(flash-anchor-hit){background-color:rgba(14,165,233,.42);color:inherit;text-decoration:underline;text-decoration-color:rgba(14,165,233,.8)}
 .ds-entry{box-sizing:border-box;width:calc(100% + 4px);height:42px;display:flex;align-items:center;gap:8px;margin:0 -2px;padding:0 10px 0 8px;border:0;border-radius:12px;background:transparent;color:var(--dsw-alias-label-primary,#e6e6e6);font:inherit;font-size:14px;line-height:22px;cursor:pointer;overflow:hidden;text-decoration:none;transition:background .16s}
 .ds-entry:hover{background:color-mix(in srgb,var(--dsw-alias-label-secondary,#98a6bf) 14%,transparent)}
@@ -755,8 +791,8 @@ window.__ModuleLoader__.load({
 .ds-pending{display:inline-flex;align-items:center;gap:5px}
 .ds-pending .ds-dot{width:5px;height:5px;border-radius:50%;background:#22d3ee;animation:ds-blink 1s ease-in-out infinite}
 @keyframes ds-blink{0%,100%{opacity:.25}50%{opacity:1}}
-@media (max-width:1100px){.ds-side{width:278px}.ds-indexed{display:none}.ds-sub{display:none}.ds-brand{min-width:auto}.ds-top{gap:10px}}
-@media (max-width:860px){.ds-root{padding:0}.ds-modal{width:100vw;height:100vh;border-radius:0}.ds-side{display:none}.ds-main{padding:18px}.ds-hero-cards{grid-template-columns:1fr}.ds-top{padding:10px 12px}.ds-search{height:42px}.ds-kbd{display:none}.ds-deck{inset:0;border-radius:0}}
+@media (max-width:1100px){.ds-statusbar{left:278px}.ds-side{width:278px}.ds-indexed{display:none}.ds-sub{display:none}.ds-brand{min-width:auto}.ds-top{gap:10px}}
+@media (max-width:860px){.ds-statusbar{left:0}.ds-root{padding:0}.ds-modal{width:100vw;height:100vh;border-radius:0}.ds-side{display:none}.ds-main{padding:18px}.ds-hero-cards{grid-template-columns:1fr}.ds-top{padding:10px 12px}.ds-search{height:42px}.ds-kbd{display:none}.ds-deck{inset:0;border-radius:0}}
 @media (prefers-reduced-motion:reduce){.ds-backdrop,.ds-modal,.ds-deck,.ds-welcome,.ds-skel,.ds-modal::before,.ds-modal::after,.ds-progress{animation:none!important}.ds-result:hover{transform:none}}
 `
 
@@ -2335,6 +2371,35 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // Export/share glyph (图六): a box with an arrow leaving it.
+    function ExportIcon(props) {
+      const size = props && props.size ? props.size : 16
+      return h(
+        'svg',
+        { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', 'aria-hidden': 'true', focusable: 'false', className: props && props.className },
+        h('path', {
+          d: 'M11.4 3.2h4.9v4.9',
+          stroke: 'currentColor',
+          strokeWidth: 1.6,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+        }),
+        h('path', {
+          d: 'M16.1 3.4 9.5 10',
+          stroke: 'currentColor',
+          strokeWidth: 1.6,
+          strokeLinecap: 'round',
+        }),
+        h('path', {
+          d: 'M16.1 11.2v3.9a1.7 1.7 0 0 1-1.7 1.7H4.6a1.7 1.7 0 0 1-1.7-1.7V5.3a1.7 1.7 0 0 1 1.7-1.7h3.9',
+          stroke: 'currentColor',
+          strokeWidth: 1.6,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+        }),
+      )
+    }
+
     function SparkIcon(props) {
       const size = props && props.size ? props.size : 16
       return h(
@@ -2629,15 +2694,16 @@ window.__ModuleLoader__.load({
       const [timeOrder, setTimeOrder] = React.useState(initial.timeOrder || 'desc')
       const [workspace, setWorkspace] = React.useState(initial.workspace || '')
       const [long, setLong] = React.useState(initial.long === true)
-      const [blur, setBlur] = React.useState(initial.blur)
-      const [alpha, setAlpha] = React.useState(initial.alpha)
       const [scatter, setScatter] = React.useState(initial.scatter !== false)
       const [threads, setThreads] = React.useState(initial.threads || 2)
+      // Auto is the default: the Host knows the corpus size, the reader does not.
+      const [autoThreads, setAutoThreads] = React.useState(initial.autoThreads !== false)
       const [sessionsState, setSessionsState] = React.useState({ loading: false, loaded: false, items: [] })
       const [workspaces, setWorkspaces] = React.useState([])
       const [log, setLog] = React.useState({ enabled: true, path: '', bytes: 0 })
       const [indexOpen, setIndexOpen] = React.useState(false)
       const [indexData, setIndexData] = React.useState(null)
+      const [prefetch, setPrefetch] = React.useState({ state: 'idle', done: 0, total: 0 })
       const [data, setData] = React.useState(null)
       // Reopening must show the page the reader left, even when that search was
       // never snapshotted (partial page). The in-memory page is enough.
@@ -2805,10 +2871,9 @@ window.__ModuleLoader__.load({
                 workspace: typeof prefs.workspace === 'string' ? prefs.workspace : '',
                 long: prefs.long === true,
               })
-              setBlur(clampNumber(prefs.blur, 0, 48, APPEARANCE_DEFAULT.blur))
-              setAlpha(clampNumber(prefs.alpha, 55, 100, APPEARANCE_DEFAULT.alpha))
               setScatter(prefs.scatter !== false)
               setThreads(clampNumber(prefs.threads, 1, 8, 2))
+              setAutoThreads(prefs.autoThreads !== false)
             }
 
           })
@@ -2821,6 +2886,47 @@ window.__ModuleLoader__.load({
           alive = false
         }
       }, [t])
+
+      // Tell the Host which shards this filter set can reach, so it can decode
+      // them in the 300 ms the reader spends before pressing Enter. The search
+      // never waits for this; a miss is recorded as `prefetch-miss`.
+      React.useEffect(() => {
+        if (!stateReady) return
+        const timer = window.setTimeout(() => {
+          apiPost({ action: 'prefetch' }, {
+            selection: {
+              scope: scopeMode === 'session' ? selectedSession || 'all' : 'all',
+              workspace: String(workspace || ''),
+              types,
+              long,
+            },
+          })
+            .then((payload) => {
+              if (payload && payload.prefetch) setPrefetch(payload.prefetch)
+            })
+            .catch(() => {})
+        }, 260)
+        return () => window.clearTimeout(timer)
+      }, [stateReady, scopeMode, selectedSession, workspace, types, long])
+
+      // While shards are being decoded, poll the Host and show the progress.
+      React.useEffect(() => {
+        if (!stateReady || prefetch.state !== 'running') return undefined
+        let alive = true
+        const timer = window.setInterval(() => {
+          api({ action: 'status' })
+            .then((payload) => {
+              if (!alive || !payload.index) return
+              if (payload.index.prefetch) setPrefetch(payload.index.prefetch)
+              indexBadge.set({ pending: Number(payload.index.pending) || 0, running: payload.index.running === true })
+            })
+            .catch(() => {})
+        }, 400)
+        return () => {
+          alive = false
+          window.clearInterval(timer)
+        }
+      }, [stateReady, prefetch.state])
 
       // A workspace saved by an earlier visit can be gone (renamed directory,
       // deleted registration). Keeping it filtered the picker by a workspace that
@@ -2902,10 +3008,9 @@ window.__ModuleLoader__.load({
           query,
           workspace,
           long,
-          blur,
-          alpha,
           scatter,
           threads,
+          autoThreads,
           resultsOpen,
           savedId,
         }
@@ -2922,7 +3027,7 @@ window.__ModuleLoader__.load({
             saveTimer.current = null
           }
         }
-      }, [stateReady, scopeMode, selectedSession, objectMode, types, ext, sort, timeOrder, query, workspace, long, blur, alpha, scatter, threads, resultsOpen, savedId])
+      }, [stateReady, scopeMode, selectedSession, objectMode, types, ext, sort, timeOrder, query, workspace, long, scatter, threads, autoThreads, resultsOpen, savedId])
 
       React.useEffect(() => {
         return () => {
@@ -3085,7 +3190,7 @@ window.__ModuleLoader__.load({
             ext: suffix,
             sort: active.sort === 'time' ? (active.timeOrder === 'asc' ? 'time-asc' : 'time') : 'relevance',
             limit: 400,
-            threads: scatter ? threads : 1,
+            threads: scatter ? (autoThreads ? 'auto' : threads) : 1,
             // The Host echoes this back, so a late response for an older filter
             // set can never be displayed under the current chips.
             sig: signature,
@@ -3286,6 +3391,34 @@ window.__ModuleLoader__.load({
         return () => window.clearTimeout(timer)
       }, [searching, t])
 
+      // A payload gated out by its signature must heal itself. One silent search
+      // per mismatched pair: opening a history row right after changing a filter
+      // used to leave the deck waiting forever.
+      const mismatchRef = React.useRef('')
+      React.useEffect(() => {
+        if (!resultsOpen || searching || !data || !data.signature || !currentSignature) return
+        if (data.signature === currentSignature) return
+        const key = data.signature + '>' + currentSignature
+        if (mismatchRef.current === key) return
+        mismatchRef.current = key
+        void runSearch(undefined, true, undefined, { auto: true, silent: true })
+      }, [resultsOpen, searching, data, currentSignature, runSearch])
+
+      // 结果流式出现：索引还在后台补时，每个回答都是上一次的超集，所以按固定节奏
+      // 再问一次，让列表"长出来"，而不是先空屏、再一次性给出整页。
+      const streamRef = React.useRef({ signature: '', tries: 0 })
+      React.useEffect(() => {
+        if (!resultsOpen || searching || viewSaved !== null) return
+        if (Number(data && data.pending) <= 0) return
+        if (streamRef.current.signature !== currentSignature) streamRef.current = { signature: currentSignature, tries: 0 }
+        if (streamRef.current.tries >= 12) return
+        streamRef.current.tries += 1
+        const timer = window.setTimeout(() => {
+          void runSearch(undefined, true, undefined, { auto: true, silent: true })
+        }, 600)
+        return () => window.clearTimeout(timer)
+      }, [resultsOpen, searching, data, currentSignature, viewSaved, runSearch])
+
       // First choice: the page is still in memory from this session. It is
       // shown immediately and needs no host round trip at all.
       const restoreRef = React.useRef(null)
@@ -3392,17 +3525,11 @@ window.__ModuleLoader__.load({
         try {
           if (!ctx.uiWorkspace || typeof ctx.uiWorkspace.openSession !== 'function') throw new Error('navigation unavailable')
           const queryText = data && typeof data.query === 'string' ? data.query : ''
-          // An archived session opens, renders, and is then cleared by the
-          // Client's own archived-current check — which reads as "it located and
-          // then bounced me back to the new-session screen". Unarchive first.
-          const navigate = () => ctx.uiWorkspace.openSession(item.sessionId)
-          if (typeof ctx.uiWorkspace.unarchiveSession === 'function') {
-            void Promise.resolve(ctx.uiWorkspace.unarchiveSession(item.sessionId))
-              .catch(() => {})
-              .then(navigate, navigate)
-          } else {
-            navigate()
-          }
+          // A hit can only come from a session the index still holds, and an
+          // archived session is dropped from the index. Unarchiving here would
+          // resurrect exactly the conversation the user archived, so it is not
+          // done: the result page may only open sessions that are already live.
+          ctx.uiWorkspace.openSession(item.sessionId)
           if (item.locate === false) {
             onClose()
             jumpStore.set({ state: 'partial', message: t('jump.imageOnly') })
@@ -3656,21 +3783,16 @@ window.__ModuleLoader__.load({
               onSort: setSort,
               timeOrder,
               onTimeOrder: setTimeOrder,
-              blur,
-              setBlur,
-              alpha,
-              setAlpha,
-              onResetAppearance: () => {
-                setBlur(APPEARANCE_DEFAULT.blur)
-                setAlpha(APPEARANCE_DEFAULT.alpha)
-              },
               indexStatus,
+              prefetch,
               long,
               onToggleLong: () => setLong((value) => !value),
               scatter,
               threads,
               onToggleScatter: () => setScatter((value) => !value),
               setThreads,
+              autoThreads,
+              onToggleAutoThreads: () => setAutoThreads((value) => value !== true),
               onStartIndex: startIndex,
               onOpenIndex: () => setIndexOpen(true),
               onClearIndex: clearIndex,
@@ -3753,13 +3875,68 @@ window.__ModuleLoader__.load({
                   typeSummary,
                   objectLabel: t('object.' + objectMode),
                   signature: currentSignature,
+                  lastSignature: lastSearchRef.current,
                   titleOf: titleOfSession,
                   viewSaved: viewSaved !== null,
                 })
               : null,
           ),
           notice ? h('div', { className: 'ds-notice', role: 'status' }, notice) : null,
+          // One always-visible status line for the right pane: preloading, the
+          // background index pass, or simply "ready". The sidebar version of this
+          // was invisible in practice.
+          h(StatusBar, {
+            t,
+            prefetch,
+            indexStatus,
+            searching,
+            // The deck covers the whole body (the sidebar is not shown), so the
+            // strip must span the full width; otherwise the left third is an
+            // empty gap and the bar looks broken.
+            full: resultsOpen || indexOpen,
+            pending: Number(progress && progress.pending) || 0,
+          }),
         ),
+      )
+    }
+
+    function StatusBar(props) {
+      const { t, prefetch, indexStatus, searching } = props
+      const preloading = prefetch && prefetch.state === 'running'
+      const indexing = indexStatus && indexStatus.running === true
+      const pending = Math.max(0, Number(props.pending) || 0)
+      const total = Math.max(0, Number(indexStatus && indexStatus.total) || 0)
+      const done = Math.max(0, Number(indexStatus && indexStatus.done) || 0)
+      let text = t('status.ready', {
+        sessions: Number(indexStatus && indexStatus.totalSessions) || 0,
+        docs: Number(indexStatus && indexStatus.docs) || 0,
+      })
+      let tone = 'is-ready'
+      if (searching) {
+        text = t('results.loading')
+        tone = 'is-busy'
+      } else if (preloading) {
+        text = t('prefetch.running', { done: Number(prefetch.done) || 0, total: Number(prefetch.total) || 0 })
+        tone = 'is-busy'
+      } else if (indexing) {
+        text = t('index.busy', { done, total })
+        tone = 'is-busy'
+      } else if (pending > 0) {
+        text = t('deck.pending', { done: Math.max(0, total - pending), total })
+        tone = 'is-busy'
+      }
+      return h(
+        'div',
+        { className: 'ds-statusbar ' + tone + (props.full ? ' is-full' : ''), role: 'status', 'aria-live': 'polite' },
+        h('span', { className: 'ds-statusbar-dot', 'aria-hidden': 'true' }),
+        h('span', { className: 'ds-statusbar-text' }, text),
+        preloading && Number(prefetch.total) > 0
+          ? h(
+              'span',
+              { className: 'ds-statusbar-bar', 'aria-hidden': 'true' },
+              h('span', { style: { width: Math.round((100 * (Number(prefetch.done) || 0)) / Math.max(1, Number(prefetch.total) || 1)) + '%' } }),
+            )
+          : null,
       )
     }
 
@@ -4001,6 +4178,14 @@ window.__ModuleLoader__.load({
             onChange: props.onToggleScatter,
           }),
           props.scatter !== false
+            ? h(SwitchRow, {
+                title: t('settings.autoThreads'),
+                hint: t('settings.autoThreadsHint'),
+                checked: props.autoThreads !== false,
+                onChange: props.onToggleAutoThreads,
+              })
+            : null,
+          props.scatter !== false && props.autoThreads === false
             ? h(
                 'label',
                 { className: 'ds-range-row ds-thread-row' },
@@ -4187,7 +4372,15 @@ window.__ModuleLoader__.load({
                       'div',
                       { key: index, className: 'ds-index-event' },
                       h('span', null, new Date(event.at).toLocaleTimeString()),
-                      h('span', null, event.type === 'rebuild' ? t('index.eventRebuild') : t('index.eventIndex')),
+                      h(
+              'span',
+              null,
+              event.type === 'rebuild'
+                ? t('index.eventRebuild')
+                : event.type === 'prefetch-miss'
+                  ? t('index.eventMiss', { done: Number(event.docs) || 0, total: Number(event.wanted) || 0 })
+                  : t('index.eventIndex'),
+            ),
                       h('span', null, (event.docs || 0) + ' ' + t('index.colDocs')),
                     ),
                   ),
@@ -4405,8 +4598,22 @@ window.__ModuleLoader__.load({
       const { t, data, searching, error } = props
       const notify = typeof props.onNotice === 'function' ? props.onNotice : () => {}
       // A payload is only this filter set's page when its signature says so.
-      const view = data && (!data.signature || !props.signature || data.signature === props.signature) ? data : null
-      const pending = searching || (data != null && view === null)
+      // A payload belongs to the request that was issued, which is not always the
+      // filter set currently in state: opening a history row searches with the
+      // row's filters while React is still committing the sidebar state. Gating
+      // only on the state signature left the deck on a skeleton forever.
+      const view =
+        data &&
+        (!data.signature ||
+          !props.signature ||
+          data.signature === props.signature ||
+          (props.lastSignature && data.signature === props.lastSignature))
+          ? data
+          : null
+      const pending = searching
+      // A payload that belongs to no visible filter set is not "still searching":
+      // saying so is what kept the skeleton (and the spinner) up forever.
+      const mismatched = data != null && view === null && !searching
       const viewTypes = view && Array.isArray(view.types) && view.types.length > 0 ? view.types : null
       const chipScope = view
         ? view.scope && view.scope !== 'all'
@@ -4438,6 +4645,9 @@ window.__ModuleLoader__.load({
       }, [])
       const selectAll = () => setSelected(new Set(items.map((item) => item.id)))
       const clearSelection = () => setSelected(new Set())
+      // "取消全选" only makes sense once everything is selected; a partial
+      // selection offers "取消所选" instead.
+      const allSelected = items.length > 0 && selected.size >= items.length
       const groups = React.useMemo(() => {
         const bySession = new Map()
         for (const item of shown) {
@@ -4591,10 +4801,18 @@ window.__ModuleLoader__.load({
               },
               disabled: items.length === 0,
             },
-            h('span', { style: { fontSize: '14px', lineHeight: 1 } }, selectedItems.length > 0 ? '↓ ' + selectedItems.length : '↓'),
+            h(ExportIcon, { size: 16 }),
           ),
         ),
         pending ? h('div', { className: 'ds-progress' }) : null,
+        mismatched
+          ? h(
+              'div',
+              { className: 'ds-stale', role: 'status' },
+              h('span', null, t('results.filterChanged')),
+              h('button', { type: 'button', className: 'ds-mini-btn', onClick: props.onRetry }, t('results.refresh')),
+            )
+          : null,
         h(
           'div',
           { className: 'ds-deck-filters' },
@@ -4617,7 +4835,15 @@ window.__ModuleLoader__.load({
           view && !view.cached ? h('span', { className: 'ds-deck-chip' }, t('deck.took', { ms: Number(view.tookMs) || 0 })) : null,
           view && view.degraded ? h('span', { className: 'ds-deck-chip' }, t('deck.degraded')) : null,
           view && view.threads
-            ? h('span', { className: 'ds-deck-chip' }, view.threads > 1 ? t('deck.threads', { n: view.threads }) : t('deck.inline'))
+            ? h(
+                'span',
+                { className: 'ds-deck-chip' },
+                view.threadsAuto
+                  ? t('deck.threadsAuto', { n: view.threads })
+                  : view.threads > 1
+                    ? t('deck.threads', { n: view.threads })
+                    : t('deck.inline'),
+              )
             : null,
           Number(props.progress && props.progress.pending) > 0
             ? h('span', { className: 'ds-deck-chip ds-pending' }, h('span', { className: 'ds-dot' }), t('deck.pending', {
@@ -4635,7 +4861,7 @@ window.__ModuleLoader__.load({
                 h(
                   'button',
                   { type: 'button', className: 'ds-deck-link', onClick: selected.size > 0 ? clearSelection : selectAll },
-                  selected.size > 0 ? t('export.selectNone') : t('export.selectAll'),
+                  allSelected ? t('export.selectNone') : selected.size > 0 ? t('export.clearSelected') : t('export.selectAll'),
                 ),
                 selected.size > 0
                   ? h('span', { className: 'ds-deck-chip is-picked' }, t('export.selectedChip', { count: selected.size }))

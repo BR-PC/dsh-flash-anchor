@@ -207,8 +207,11 @@ assert.equal(preloadRequest.threads, 8)
 assert.equal(preloadRequest.preload, true)
 const normalRequest = parseSearchRequest(new URLSearchParams({ q: 'x', limit: '5000' }))
 assert.equal(normalRequest.limit, 400)
-assert.equal(normalRequest.threads, 2)
+// Threads are decided by the Host from the corpus size unless the Client asks
+// for a number ('auto' is the default, not "unset").
+assert.equal(normalRequest.threads, 'auto')
 assert.equal(normalRequest.preload, false)
+assert.equal(parseSearchRequest(new URLSearchParams({ q: 'x', threads: 'auto' })).threads, 'auto')
 const oneThread = parseSearchRequest(new URLSearchParams({ q: 'x', threads: '0' }))
 assert.equal(oneThread.threads, 1)
 

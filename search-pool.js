@@ -1,7 +1,10 @@
-// Worker pool for the matching pass. Each worker owns one shard, so memory is
-// roughly one extra copy of the corpus in total, not one per thread. A worker
-// that dies (including its heap limit) marks the pool degraded and the Host
-// falls back to the in-process scan for the rest of the session.
+// Worker pool for the matching pass.
+//
+// The corpus is NEVER copied through postMessage. Each worker is told which
+// shard FILES belong to it and reads/decodes them itself (fs + zlib), so the
+// pool holds one corpus in total — split across workers — instead of one full
+// clone per worker. Re-balancing after an index change costs a list of paths
+// (a few KB), not 40+ MB of structured clone.
 import { Worker } from 'node:worker_threads'
 
 export class SearchPool {
@@ -34,11 +37,6 @@ export class SearchPool {
     this.readyResolvers.clear()
   }
 
-  /**
-   * A dead worker degrades the pool, but only until a cooldown expires: a
-   * transient OOM must not make every later search single-threaded for the rest
-   * of the process. The delay doubles per consecutive failure, capped at 15 min.
-   */
   fail(reason) {
     if (this.degraded) return
     this.degraded = true
@@ -46,12 +44,6 @@ export class SearchPool {
     this.failures = (this.failures || 0) + 1
     this.retryAt = Date.now() + Math.min(15 * 60_000, 60_000 * 2 ** (this.failures - 1))
     void this.dispose()
-  }
-
-  shards(docs, size) {
-    const out = Array.from({ length: size }, () => [])
-    for (let index = 0; index < docs.length; index += 1) out[index % size].push(docs[index])
-    return out
   }
 
   makeReady(worker) {
@@ -68,14 +60,13 @@ export class SearchPool {
     this.ready.set(worker, promise)
   }
 
-  spawn(shards, version) {
-    this.workers = shards.map((shard) => {
+  spawn(assignments, version) {
+    this.workers = assignments.map((shards) => {
       const worker = new Worker(this.workerUrl, {
-        workerData: { docs: shard, version },
+        // Only paths (and, for a shard that has not been written yet, its docs).
+        workerData: { shards, version },
         resourceLimits: { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 32 },
       })
-      // Idle workers must not keep the process alive (tests, shutdown); a
-      // pending search refs them again.
       worker.unref()
       this.makeReady(worker)
       worker.on('error', (error) => this.fail(error))
@@ -101,13 +92,11 @@ export class SearchPool {
       })
       return worker
     })
-    this.size = shards.length
+    this.size = assignments.length
     this.version = version
   }
 
   ask(worker, message, timeoutMs) {
-    // One id per request: the same id for two workers would let the first
-    // reply resolve the wrong promise.
     const id = ++this.seq
     message.id = id
     try { worker.ref() } catch {}
@@ -126,11 +115,14 @@ export class SearchPool {
     })
   }
 
-  /** Scan with size workers; null means the caller must scan inline. */
-  async search(request, size, docs, version, timeoutMs = 20000) {
+  /**
+   * `assignments` is one array per worker: `{ id, path, chars, docs? }` entries.
+   * `docs` is only present for a shard that has not been persisted yet; it is
+   * the exception, not the transport.
+   */
+  async search(request, size, assignments, version, timeoutMs = 20000) {
     if (this.degraded) {
       if (Date.now() < (this.retryAt || 0)) return null
-      // Cooldown over: drop the degraded state and try a fresh pool.
       this.degraded = false
       this.failures = 0
       await this.dispose()
@@ -139,16 +131,14 @@ export class SearchPool {
     try {
       if (this.size !== size) {
         await this.dispose()
-        this.spawn(this.shards(docs, size), version)
+        this.spawn(assignments, version)
       } else if (this.version !== version) {
-        const shards = this.shards(docs, size)
         this.workers.forEach((worker, index) => {
-          worker.postMessage({ type: 'corpus', docs: shards[index], version })
+          this.makeReady(worker)
+          worker.postMessage({ type: 'corpus', shards: assignments[index] || [], version })
         })
         this.version = version
       }
-      // Promise.all([]) resolves to [] (truthy): a half-spawned pool would
-      // otherwise be reported as a valid empty match set.
       if (this.workers.length !== size) {
         this.fail(new Error('worker-count'))
         return null

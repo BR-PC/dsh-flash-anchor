@@ -164,6 +164,18 @@ await check('an explicit rebuild re-reads sessions that are already fresh', asyn
   assert.equal(stale.total, 0, 'the old text is still indexed after a rebuild')
 })
 
+await check('the thread policy follows the corpus size', async () => {
+  const { resolveThreads } = __test
+  assert.equal(resolveThreads('auto', 2_000_000, 16).threads, 1, 'a small corpus must stay single-threaded')
+  assert.equal(resolveThreads(undefined, 2_000_000, 16).auto, true, 'the default is the automatic policy')
+  // A preloaded corpus is resident in the Host, so automatic mode is always one
+  // thread; the pool is an explicit choice.
+  assert.equal(resolveThreads('auto', 900_000_000, 16).threads, 1, 'automatic mode must not copy the corpus into workers')
+  assert.equal(resolveThreads(2, 999_999_999, 16).threads, 2, 'an explicit choice must be honoured')
+  assert.equal(resolveThreads(2, 999_999_999, 16).auto, false)
+  assert.equal(resolveThreads('auto', 999_999_999, 2).threads, 1, 'never claim more threads than the machine can run')
+})
+
 await check('lazy status', async () => {
   const status = index.status()
   assert.equal(status.pending, 0, 'every session is indexed after startAll')
